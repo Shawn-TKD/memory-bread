@@ -44,17 +44,20 @@ extern "C" {
 #include "src/app/record.h"
 #include "src/app/config_store.h"
 #include "src/app/obsidian.h"
+#include "src/app/ideashell.h"
 
 // All pin, timing, path and threshold constants live in config.h.
 
 // ─── Content arrays ───────────────────────────────────────────────────────
-const char* DEFAULT_TAGS[]    = { "Note", "Work", "Idea", "Buy", "Private" };
-const char* MENU_ITEMS[]     = { "Notes", "Tags", "Sync", "Settings" };
-const char* SETTINGS_ITEMS[] = { "Sounds", "Transfer", "Device", "Erase All", "Reset" };
+const char* DEFAULT_TAGS[]    = { "随记", "工作", "想法", "购买", "私密" };
+const char* MENU_ITEMS[]     = { "笔记", "标签", "同步", "长录音", "设置" };
+const char* SETTINGS_ITEMS[] = { "提示音", "传输", "设备", "全部删除", "重置" };
 
 // ─── Global variable definitions ─────────────────────────────────────────
 board_power_bsp_t      board(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 epaper_driver_display* display = nullptr;
+uint8_t memoryBreadSoundTheme = SOUND_THEME_CLASSIC;
+bool    memoryBreadSoundMuted = false;
 
 std::vector<NoteEntry> noteIndex;
 
@@ -75,6 +78,7 @@ bool     wakeToRecRequested  = false;
 uint32_t tickerLastMs = 0;
 int      tickerOffset = 0;
 int      tickerCursor = -1;
+bool     tickerScrollActive = false;
 
 WebServer transferServer(80);
 bool      transferServerActive = false;
@@ -104,21 +108,68 @@ void keepBatteryPowerOn() {
 }
 
 // ─── Flow functions ───────────────────────────────────────────────────────
-void startRecordFlow() {
-  state = STATE_RECORDING;
-  showRecording();
+bool connectSavedWifi(bool showProgress) {
+  if (!cfg::hasWifi()) return false;
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
 
-  palaSoundSetEnabled(false);
-  bool recOk = record();
+  int order[cfg::MAX_WIFI_NETWORKS];
+  int count = 0;
+  int8_t last = cfg::lastWifiSlot();
+  if (last >= 0) order[count++] = last;
+  for (uint8_t i = 0; i < cfg::MAX_WIFI_NETWORKS; i++)
+    if (cfg::wifiSsid(i).length() && i != last) order[count++] = i;
+
+  const int TRIES_PER_NETWORK = 12;
+  int totalTry = 0, maxTry = max(1, count * TRIES_PER_NETWORK);
+  if (showProgress) showWifiConnecting(0, maxTry);
+
+  for (int pos = 0; pos < count; pos++) {
+    uint8_t slot = order[pos];
+    String ssid = cfg::wifiSsid(slot), pass = cfg::wifiPass(slot);
+    Serial.printf("[WiFi] trying slot %u '%s'\n", slot + 1, ssid.c_str());
+    WiFi.disconnect();
+    delay(120);
+    if (pass.length()) WiFi.begin(ssid.c_str(), pass.c_str());
+    else               WiFi.begin(ssid.c_str());
+    for (int tries = 0; tries < TRIES_PER_NETWORK; tries++) {
+      if (WiFi.status() == WL_CONNECTED) {
+        cfg::setLastWifiSlot(slot);
+        Serial.printf("[WiFi] connected slot %u ip=%s\n",
+                      slot + 1, WiFi.localIP().toString().c_str());
+        return true;
+      }
+      delay(500);
+      totalTry++;
+      if (showProgress) showWifiConnecting(totalTry, maxTry);
+    }
+  }
+  return false;
+}
+
+static void finishRecordFlow(bool recOk) {
+  // record() is deliberately blocking and long recordings can exceed the global
+  // inactivity timeout. Start a fresh interaction window before leaving the
+  // STATE_RECORDING exemption, otherwise the tag screen immediately sleeps.
+  resetActivity();
   palaSoundSetEnabled(true);
 
   if (!recOk) {
-    showError("REC FAIL");
+    showError("录音失败");
     delay(1600);
     state = STATE_IDLE;
     showIdle();
     return;
   }
+
+  tagCursor = min(2, max(tagCount - 1, 0));
+
+  // Persist the completed WAV before asking for a tag. Tag selection now edits
+  // an already-safe note, so sleeping or losing power on that screen cannot hide
+  // the recording or allow its number to be reused.
+  const char* initialTag = tagCount > 0 ? tags[tagCursor] : "随记";
+  saveTag(lastRecNum, initialTag);
 
   soundSaved();
 
@@ -126,44 +177,48 @@ void startRecordFlow() {
   showSaved(lastRecNum);
   delay(900);
 
-  tagCursor = min(2, max(tagCount - 1, 0));
   state = STATE_TAG_SELECT;
   showTagSelect(tagCursor);
 }
 
+void startRecordFlow() {
+  state = STATE_RECORDING;
+  showRecording();
+
+  palaSoundSetEnabled(false);
+  finishRecordFlow(record(false));
+}
+
+void startLongRecordFlow() {
+  // Play the entry cue before opening the microphone so it is not in the WAV.
+  soundRecordingStart();
+  state = STATE_RECORDING;
+  showLongRecording();
+
+  palaSoundSetEnabled(false);
+  finishRecordFlow(record(true));
+}
+
 void startSyncFlow() {
   if (!cfg::hasWifi()) {
-    showError("NO WIFI CFG");
+    showError("未配置网络");
     delay(1800);
     showIdle();
     return;
   }
 
-  const int MAX_TRIES = 20;
-  showWifiConnecting(0, MAX_TRIES);
-
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);        // creds live in our NVS; don't wear the WiFi NVS
-  WiFi.setAutoReconnect(true);   // SDK recovers (with backoff) if the link drops mid-sync
-  String ssid = cfg::wifiSsid(), pass = cfg::wifiPass();
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < MAX_TRIES) {
-    delay(500); tries++;
-    showWifiConnecting(tries, MAX_TRIES);
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
+  if (connectSavedWifi(true)) {
     syncTimeFromNTP(6000);
     transcribeAll();
     loadIndex();
+    ideashellSyncAll();       // direct MCP text sync; safe no-op unless enabled
     obsidianSyncAll();        // push freshly-transcribed notes to the Obsidian vault
     WiFi.disconnect(true);
     showDone();
     soundSuccess();
     delay(1600);
   } else {
-    showError("NO WIFI");
+    showError("网络未连接");
     delay(1800);
   }
 
@@ -176,53 +231,43 @@ void startSyncFlow() {
   }
 }
 
+void startSetupHotspot() {
+  WiFi.disconnect(true);
+  WiFi.persistent(false);
+  // AP+STA is required so the captive portal can scan nearby Wi-Fi networks
+  // while the phone remains connected to MemoryBread-Setup.
+  WiFi.mode(WIFI_AP_STA);
+  bool apOk = WiFi.softAP("MemoryBread-Setup");
+  delay(200);
+  IPAddress apIP = WiFi.softAPIP();
+  Serial.printf("[Transfer] SoftAP '%s' start=%d ip=%s\n",
+                "MemoryBread-Setup", apOk, apIP.toString().c_str());
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(53, "*", apIP);
+  captivePortalActive = true;
+  setupTransferServer();
+  transferServer.begin();
+  transferServerActive = true;
+  transferUrl = apIP.toString();
+  Serial.println("[Transfer] HTTP server started on :80");
+  showTransferMode(transferUrl.c_str());
+}
+
 void startTransferMode() {
   state = STATE_TRANSFER;
   showTransferConnecting();
 
-  // First-time setup: no Wi-Fi credentials yet -> host a SoftAP so the user can
-  // open the portal and provision Wi-Fi + OpenAI key (saved to NVS).
+  // No saved network, or none of the three networks is reachable: expose the
+  // setup hotspot rather than trapping the user behind bad credentials.
   if (!cfg::hasWifi()) {
-    WiFi.persistent(false);
-    WiFi.mode(WIFI_AP);
-    bool apOk = WiFi.softAP("ForrestNote-Setup");
-    delay(200);                                   // let the AP + DHCP server come up
-    IPAddress apIP = WiFi.softAPIP();
-    Serial.printf("[Transfer] SoftAP '%s' start=%d ip=%s\n",
-                  "ForrestNote-Setup", apOk, apIP.toString().c_str());
-
-    // Captive portal: resolve every DNS query to us so any URL (and the OS's
-    // own connectivity probe) lands on the device and pops the setup page.
-    dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
-    dnsServer.start(53, "*", apIP);
-    captivePortalActive = true;
-
-    setupTransferServer();
-    transferServer.begin();
-    transferServerActive = true;
-    transferUrl = apIP.toString();
-    Serial.println("[Transfer] HTTP server started on :80");
-    showTransferMode(transferUrl.c_str());
+    startSetupHotspot();
     return;
   }
 
-  WiFi.mode(WIFI_STA);
-  WiFi.persistent(false);
-  WiFi.setAutoReconnect(true);
-  String ssid = cfg::wifiSsid(), pass = cfg::wifiPass();
-  WiFi.begin(ssid.c_str(), pass.c_str());
-
-  const int MAX_TRIES = 24;
-  int tries = 0;
-  while (WiFi.status() != WL_CONNECTED && tries < MAX_TRIES) {
-    delay(500); tries++;
-  }
-
-  if (WiFi.status() != WL_CONNECTED) {
-    showError("NO WIFI");
-    delay(1600);
-    state = STATE_SETTINGS;
-    showSettings(settingsCursor);
+  if (!connectSavedWifi(false)) {
+    showError("网络未连接");
+    delay(1200);
+    startSetupHotspot();
     return;
   }
 
@@ -240,9 +285,10 @@ void startTransferMode() {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n=== Forrest Note " FIRMWARE_VERSION " ===");
+  Serial.println("\n=== Memory Bread / 记忆面包 " FIRMWARE_VERSION " ===");
 
   cfg::begin();   // load Wi-Fi / API secrets from NVS (seeded from secrets.h once)
+  palaSoundSetTheme(cfg::soundTheme());
 
   pinMode(BTN_REC, INPUT_PULLUP);
   pinMode(BTN_PWR, INPUT_PULLUP);
@@ -287,12 +333,15 @@ void setup() {
 
   SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
   if (!SD_MMC.begin("/sdcard", true)) {
-    showError("SD ERR");
+    showError("存储卡错误");
     while (true) delay(1000);
   }
   if (!SD_MMC.exists(NOTES_DIR)) SD_MMC.mkdir(NOTES_DIR);
   loadTags();
   loadIndex();
+  int recovered = recoverOrphanRecordings(tagCount > 0 ? tags[0] : "随记");
+  if (recovered > 0)
+    Serial.printf("[SD] recovered %d orphan WAV file(s) into index\n", recovered);
   Serial.printf("[SD] %d notes\n", (int)noteIndex.size());
 
   if (wakeToMenuRequested) {
@@ -308,7 +357,7 @@ void setup() {
 
 // ─── Serial provisioning ────────────────────────────────────────────────────
 // Reliable setup over USB (no SoftAP/captive-portal needed). Send line commands:
-//   SSID=<network>     PASS=<password>     KEY=<openai key>     SHOW     RESET
+//   SSID=<network>     PASS=<password>     KEY=<siliconflow key>     SHOW     RESET
 // Wi-Fi is saved when PASS= follows a SSID=. Credentials are stored in NVS.
 void handleSerialConfig() {
   static String line;
@@ -328,15 +377,15 @@ void handleSerialConfig() {
       Serial.printf("[cfg] ssid buffered ('%s'); now send PASS=<password>\n", pendingSsid.c_str());
     } else if (line.startsWith("PASS=")) {
       if (pendingSsid.length() > 0) {
-        cfg::setWifi(pendingSsid, line.substring(5));
+        cfg::setWifi(0, pendingSsid, line.substring(5));
         Serial.printf("[cfg] wifi saved for ssid '%s'\n", pendingSsid.c_str());
         pendingSsid = "";
       } else {
         Serial.println("[cfg] send SSID=<network> first");
       }
     } else if (line.startsWith("KEY=")) {
-      cfg::setOpenAiKey(line.substring(4));
-      Serial.println("[cfg] openai key saved");
+      cfg::setSiliconFlowKey(line.substring(4));
+      Serial.println("[cfg] SiliconFlow key saved");
     } else if (line.startsWith("GHTOKEN=")) {
       cfg::setGithubToken(line.substring(8));
       Serial.println("[cfg] github token saved");
@@ -352,9 +401,11 @@ void handleSerialConfig() {
     } else if (line == "GHON")  { cfg::setGithubEnabled(true);  Serial.println("[cfg] github sync ON");
     } else if (line == "GHOFF") { cfg::setGithubEnabled(false); Serial.println("[cfg] github sync OFF");
     } else if (line == "SHOW") {
-      Serial.printf("[cfg] wifi=%s  openai_key=%s\n",
-        cfg::hasWifi() ? cfg::wifiSsid().c_str() : "(none)",
-        cfg::hasOpenAiKey() ? "set" : "(none)");
+      Serial.printf("[cfg] wifi_count=%u  siliconflow_key=%s\n",
+        cfg::wifiCount(), cfg::hasSiliconFlowKey() ? "set" : "(none)");
+      for (uint8_t i = 0; i < cfg::MAX_WIFI_NETWORKS; i++)
+        Serial.printf("[cfg] wifi%u=%s\n", i + 1,
+                      cfg::wifiSsid(i).length() ? cfg::wifiSsid(i).c_str() : "(none)");
       Serial.printf("[cfg] github=%s branch=%s dir=%s token=%s enabled=%d ai=%d ready=%d\n",
         cfg::githubRepo().length() ? cfg::githubRepo().c_str() : "(none)",
         cfg::githubBranch().c_str(), cfg::githubDir().c_str(),
@@ -383,12 +434,11 @@ void loop() {
     }
   }
 
-  if (state == STATE_NOTE_LIST && activeTickerNeedsScroll(listCursor)) {
+  if (state == STATE_NOTE_LIST && tickerScrollActive) {
     if (millis() - tickerLastMs > TICKER_INTERVAL_MS) {
       tickerLastMs = millis();
       tickerOffset++;
-      showNoteList(listCursor);
-      return;
+      requestRedraw();
     }
   }
 
@@ -401,8 +451,8 @@ void loop() {
     switch (state) {
       case STATE_IDLE:           showIdle();                     break;
       case STATE_MENU:           showMenu(menuCursor);           break;
-      case STATE_NOTE_LIST:      showNoteList(listCursor);       break;
-      case STATE_NOTE_DETAIL:    showNoteDetail(listCursor);     break;
+      case STATE_NOTE_LIST:      requestRedraw();                break;
+      case STATE_NOTE_DETAIL:    requestRedraw();                break;
       case STATE_TAG_SELECT:     showTagSelect(tagCursor);       break;
       case STATE_TAG_BROWSER:    showTagBrowser(tagCursor);      break;
       case STATE_SETTINGS:       showSettings(settingsCursor);   break;
@@ -475,13 +525,15 @@ void loop() {
       if (menuCursor == 0) {
         activeFilter = -1; listCursor = 0;
         state = STATE_NOTE_LIST;
-        showNoteList(listCursor);
+        requestRedraw();
       } else if (menuCursor == 1) {
         tagCursor = 0;
         state = STATE_TAG_BROWSER;
         showTagBrowser(tagCursor);
       } else if (menuCursor == 2) {
         startSyncFlow();
+      } else if (menuCursor == 3) {
+        startLongRecordFlow();
       } else {
         settingsCursor = 0;
         state = STATE_SETTINGS;
@@ -504,20 +556,26 @@ void loop() {
       settingsCursor = (settingsCursor + 1) % SETTINGS_COUNT;
       requestRedraw();
     } else if (rec == EV_SINGLE) {
-      soundSelect();
       if (settingsCursor == 0) {
-        palaSoundSetEnabled(!palaSoundIsEnabled());
+        uint8_t next = (palaSoundTheme() + 1) % SOUND_THEME_COUNT;
+        palaSoundSetTheme(next);
+        cfg::setSoundTheme(next);
         showSettings(settingsCursor);
+        soundThemePreview();
       } else if (settingsCursor == 1) {
+        soundSelect();
         startTransferMode();
       } else if (settingsCursor == 2) {
+        soundSelect();
         state = STATE_DEVICE_INFO;
         showDeviceInfo();
       } else if (settingsCursor == 3) {
+        soundSelect();
         eraseAllCursor = 0;
         state = STATE_DELETE_ALL_CONFIRM;
         showDeleteAllConfirm((int)noteIndex.size(), eraseAllCursor);
       } else {
+        soundSelect();
         state = STATE_RESET_CONFIRM;
         showResetConfirm();
       }
@@ -534,7 +592,7 @@ void loop() {
     ButtonEvent pwr = readButtonEvent(BTN_PWR);
 
     if (rec == EV_SINGLE) {
-      cfg::factoryReset();          // wipe stored Wi-Fi + OpenAI key (notes on SD are kept)
+      cfg::factoryReset();          // wipe stored Wi-Fi + SiliconFlow key (notes on SD are kept)
       soundDelete();
       showResetDone();
       delay(1400);
@@ -611,7 +669,7 @@ void loop() {
       soundSelect();
       activeFilter = tagCursor; listCursor = 0;
       state = STATE_NOTE_LIST;
-      showNoteList(listCursor);
+      requestRedraw();
     } else if (rec == EV_LONG) {
       soundBack();
       state = STATE_MENU;
@@ -633,11 +691,11 @@ void loop() {
       soundSelect();
       detailScrollPage = 0;
       state = STATE_NOTE_DETAIL;
-      showNoteDetail(listCursor);
+      requestRedraw();
     } else if (rec == EV_LONG) {
       soundBack();
       state = STATE_MENU;
-      showMenu(menuCursor);
+      requestRedraw();
     }
   }
 
@@ -665,7 +723,7 @@ void loop() {
         snprintf(wavPath, sizeof(wavPath), "%s/note_%03d.wav", NOTES_DIR, noteIndex[idx].num);
         showPlaybackOverlay();
         playWavFile(wavPath);
-        showNoteDetail(listCursor);
+        requestRedraw();
       }
     } else if (pwr == EV_LONG) {                 // hold power = delete
       int idx = noteAtFilteredIndex(listCursor);
@@ -677,7 +735,7 @@ void loop() {
       soundBack();
       detailScrollPage = 0;
       state = STATE_NOTE_LIST;
-      showNoteList(listCursor);
+      requestRedraw();
     }
   }
 
@@ -695,11 +753,11 @@ void loop() {
       detailScrollPage = 0;
       listCursor = constrain(listCursor, 0, max(filteredCount() - 1, 0));
       state = STATE_NOTE_LIST;
-      showNoteList(listCursor);
+      requestRedraw();
     } else if (pwr == EV_SINGLE || rec == EV_LONG) {
       soundBack();
       state = STATE_NOTE_DETAIL;
-      showNoteDetail(listCursor);
+      requestRedraw();
     }
   }
 

@@ -7,10 +7,52 @@
 #include "rtc.h"
 #include "draw.h"
 #include "SD_MMC.h"
+#include <algorithm>
+
+namespace {
+  struct TickerCacheEntry {
+    int num = -1;
+    bool hasText = false;
+    String text;
+  };
+  TickerCacheEntry tickerCache[4];
+  uint8_t tickerCacheNext = 0;
+
+  void clearTickerCache() {
+    for (auto& entry : tickerCache) {
+      entry.num = -1;
+      entry.hasText = false;
+      entry.text = "";
+    }
+    tickerCacheNext = 0;
+  }
+
+  bool indexContains(int num) {
+    for (const auto& entry : noteIndex)
+      if (entry.num == num) return true;
+    return false;
+  }
+
+  // Accept only the exact on-card recording name: note_<positive integer>.wav.
+  // File.name() differs between FS implementations, so strip any directory first.
+  int wavNumberFromName(const String& rawName) {
+    int slash = rawName.lastIndexOf('/');
+    String base = slash >= 0 ? rawName.substring(slash + 1) : rawName;
+    if (!base.startsWith("note_") || !base.endsWith(".wav")) return -1;
+    int first = 5;
+    int last = base.length() - 4;
+    if (last <= first) return -1;
+    for (int i = first; i < last; i++)
+      if (base[i] < '0' || base[i] > '9') return -1;
+    int num = base.substring(first, last).toInt();
+    return num > 0 ? num : -1;
+  }
+}
 
 // ─── Index ────────────────────────────────────────────────────────────────
 
 void loadIndex() {
+  clearTickerCache();
   noteIndex.clear();
   File f = SD_MMC.open(INDEX_FILE);
   if (!f) return;
@@ -51,7 +93,48 @@ void addToIndex(int num, const char* tag, bool hasText) {
   saveIndex();
 }
 
+int recoverOrphanRecordings(const char* defaultTag) {
+  const char* safeTag = (defaultTag && defaultTag[0]) ? defaultTag : "随记";
+  std::vector<int> recovered;
+
+  File dir = SD_MMC.open(NOTES_DIR);
+  if (!dir || !dir.isDirectory()) {
+    if (dir) dir.close();
+    return 0;
+  }
+
+  for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+    String name = entry.name();
+    int num = wavNumberFromName(name);
+    size_t bytes = entry.size();
+    entry.close();
+    if (num <= 0 || bytes <= 44 || indexContains(num)) continue;
+
+    NoteEntry recoveredEntry;
+    recoveredEntry.num = num;
+    strncpy(recoveredEntry.tag, safeTag, sizeof(recoveredEntry.tag) - 1);
+    recoveredEntry.tag[sizeof(recoveredEntry.tag) - 1] = '\0';
+
+    char txtPath[64];
+    snprintf(txtPath, sizeof(txtPath), "%s/note_%03d.txt", NOTES_DIR, num);
+    recoveredEntry.hasText = SD_MMC.exists(txtPath);
+    noteIndex.push_back(recoveredEntry);
+    recovered.push_back(num);
+  }
+  dir.close();
+
+  if (recovered.empty()) return 0;
+
+  std::sort(noteIndex.begin(), noteIndex.end(),
+            [](const NoteEntry& a, const NoteEntry& b) { return a.num < b.num; });
+  saveIndex();
+  for (int num : recovered) writeNoteMeta(num, safeTag);
+  clearTickerCache();
+  return (int)recovered.size();
+}
+
 void updateIndexHasText(int num) {
+  clearTickerCache();
   const char* foundTag = "";
   for (int i=0; i<(int)noteIndex.size(); i++) {
     if (noteIndex[i].num==num) {
@@ -79,9 +162,10 @@ static void appendTombstone(int num) {
 }
 
 void deleteNote(int num) {
+  clearTickerCache();
   if (noteObsidianPushed(num)) appendTombstone(num);   // schedule vault cleanup
 
-  const char* exts[] = {"wav", "txt", "meta", nullptr};
+  const char* exts[] = {"wav", "txt", "meta", "idea", nullptr};
   char path[64];
   for (int e = 0; exts[e]; e++) {
     snprintf(path, sizeof(path), "%s/note_%03d.%s", NOTES_DIR, num, exts[e]);
@@ -135,12 +219,40 @@ int deleteAllNotes(bool alsoVault) {
 int nextNoteNumber() {
   int maxNum = 0;
   for (int i=0; i<(int)noteIndex.size(); i++) if (noteIndex[i].num > maxNum) maxNum = noteIndex[i].num;
+
+  // Never reuse an ID merely because a previous recording reached the SD card
+  // but power was lost before index.csv was updated.
+  File dir = SD_MMC.open(NOTES_DIR);
+  if (dir && dir.isDirectory()) {
+    for (File entry = dir.openNextFile(); entry; entry = dir.openNextFile()) {
+      int num = wavNumberFromName(String(entry.name()));
+      entry.close();
+      if (num > maxNum) maxNum = num;
+    }
+    dir.close();
+  } else if (dir) {
+    dir.close();
+  }
   return maxNum + 1;
 }
 
 void saveTag(int num, const char* tag) {
-  writeNoteMeta(num, tag);
-  addToIndex(num, tag, false);
+  const char* safeTag = (tag && tag[0]) ? tag : "随记";
+  clearTickerCache();
+  for (auto& entry : noteIndex) {
+    if (entry.num != num) continue;
+    strncpy(entry.tag, safeTag, sizeof(entry.tag) - 1);
+    entry.tag[sizeof(entry.tag) - 1] = '\0';
+    saveIndex();
+    writeNoteMeta(num, safeTag);
+    return;
+  }
+
+  // A completed WAV becomes a visible note immediately. Later tag selection
+  // updates this same row instead of being the operation that decides whether
+  // the recording exists at all.
+  addToIndex(num, safeTag, false);
+  writeNoteMeta(num, safeTag);
 }
 
 // ─── Tags ─────────────────────────────────────────────────────────────────
@@ -413,6 +525,10 @@ String notePreviewText(int num, size_t maxLen) {
 
 String noteTickerText(int idx) {
   if (idx < 0) return "";
+  int num = noteIndex[idx].num;
+  for (auto& entry : tickerCache)
+    if (entry.num == num && entry.hasText == noteIndex[idx].hasText) return entry.text;
+
   String dt      = noteCreatedDeviceLabel(noteIndex[idx].num);
   String preview = notePreviewText(noteIndex[idx].num, 130);
   if (preview.length() == 0)
@@ -420,7 +536,12 @@ String noteTickerText(int idx) {
   String ticker = dt;
   if (ticker == "time not set") ticker = preview;
   else { ticker += "  -  "; ticker += preview; }
-  return normalizeForDisplay(ticker);
+  ticker = normalizeForDisplay(ticker);
+  TickerCacheEntry& slot = tickerCache[tickerCacheNext++ % 4];
+  slot.num = num;
+  slot.hasText = noteIndex[idx].hasText;
+  slot.text = ticker;
+  return ticker;
 }
 
 bool activeTickerNeedsScroll(int cursor) {

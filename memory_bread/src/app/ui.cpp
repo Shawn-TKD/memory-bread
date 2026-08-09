@@ -163,8 +163,8 @@ void drawSoftFrame() {
 }
 
 void drawProductWordmark(int cx, int y, uint8_t color) {
-  drawStr(cx - textW("forrest", 2) / 2, y,      "forrest", 2, color);
-  drawStr(cx - textW("note", 2) / 2,    y + 22, "note",    2, color);
+  drawStr(cx - textW("记忆", 2) / 2, y,      "记忆", 2, color);
+  drawStr(cx - textW("面包", 1) / 2, y + 36, "面包", 1, color);
 }
 
 void drawModernPill(int x, int y, int w, int h, const char* label, bool active) {
@@ -225,6 +225,17 @@ void drawMenuTile(int x, int y, int w, int h, const char* label, int icon, bool 
   drawStrInBox(x + 4, y + 29, w - 8, 18, label, 1, col);
 }
 
+static const char* localizedTag(const char* tag) {
+  if (!tag) return "";
+  if (!strcasecmp(tag, "Note")) return "随记";
+  if (!strcasecmp(tag, "Work")) return "工作";
+  if (!strcasecmp(tag, "Idea")) return "想法";
+  if (!strcasecmp(tag, "Buy")) return "购买";
+  if (!strcasecmp(tag, "Private")) return "私密";
+  if (!strcasecmp(tag, "Untagged")) return "未分类";
+  return tag;
+}
+
 void drawNoteCard(int y, int idx, bool active) {
   const int x = 16, w = 168, h = 39;
   if (active) fillRoundRect(x, y, w, h, 8, BLACK);
@@ -232,10 +243,11 @@ void drawNoteCard(int y, int idx, bool active) {
   uint8_t col = active ? WHITE : BLACK;
 
   char n[8]; snprintf(n, sizeof(n), "#%03d", noteIndex[idx].num);
-  String tagLabel = normalizeForDisplay(String(noteIndex[idx].tag));
+  String tagLabel = normalizeForDisplay(String(localizedTag(noteIndex[idx].tag)));
   drawStr(x + 10, y + 5, n, 1, col);
   drawStrFit(x + 66, y + 5, 88, tagLabel.c_str(), 1, col);
   String ticker = noteTickerText(idx);
+  if (active) tickerScrollActive = textW(ticker.c_str(), 1) > 145;
   drawTickerText(x + 10, y + 22, 145, ticker, active, col);
 }
 
@@ -283,8 +295,7 @@ void showBatteryLow(int pct) {
   fillRect(95, 108, 10, 10, WHITE);
   char buf[8]; snprintf(buf, sizeof(buf), "%d%%", pct);
   drawStrC(100, 132, buf,       2, WHITE);
-  drawStrC(100, 160, "battery", 1, WHITE);
-  drawStrC(100, 176, "low",     1, WHITE);
+  drawStrC(100, 160, "电量低", 1, WHITE);
   refresh();
 }
 
@@ -320,10 +331,48 @@ void showRecordingLive(uint32_t elapsedMs, int level) {
   display->EPD_DisplayPartTrigger();
 }
 
+static void drawLongRecordingScreen(uint32_t elapsedMs, uint32_t remainingMinutes) {
+  clearWhite();
+  drawStrC(100, 22, "长录音", 1, BLACK);
+  fillCircle(100, 68, 13, BLACK);
+
+  uint32_t totalSeconds = elapsedMs / 1000UL;
+  char elapsed[16];
+  snprintf(elapsed, sizeof(elapsed), "%02lu:%02lu:%02lu",
+           (unsigned long)(totalSeconds / 3600UL),
+           (unsigned long)((totalSeconds / 60UL) % 60UL),
+           (unsigned long)(totalSeconds % 60UL));
+  drawStrC(100, 99, elapsed, 2, BLACK);
+
+  char remain[32];
+  if (elapsedMs == 0 && remainingMinutes == 0) {
+    snprintf(remain, sizeof(remain), "正在检查存储卡");
+  } else if (remainingMinutes >= 60) {
+    snprintf(remain, sizeof(remain), "约剩 %lu 小时 %lu 分",
+             (unsigned long)(remainingMinutes / 60),
+             (unsigned long)(remainingMinutes % 60));
+  } else {
+    snprintf(remain, sizeof(remain), "约剩 %lu 分钟", (unsigned long)remainingMinutes);
+  }
+  drawStrC(100, 145, remain, 1, BLACK);
+  drawStrC(100, 172, "短按录音键结束", 1, BLACK);
+}
+
+void showLongRecording() {
+  drawLongRecordingScreen(0, 0);
+  refresh();
+}
+
+void showLongRecordingLive(uint32_t elapsedMs, uint32_t remainingMinutes) {
+  if (displayBusy()) return;
+  drawLongRecordingScreen(elapsedMs, remainingMinutes);
+  display->EPD_DisplayPartTrigger();
+}
+
 void showSaved(int num) {
   clearWhite();
   drawCheckSmall(100, 46, BLACK);
-  drawStrC(100, 76, "saved", 1, BLACK);
+  drawStrC(100, 76, "已保存", 1, BLACK);
   char b[8]; snprintf(b, sizeof(b), "#%03d", num);
   drawStrC(100, 105, b, 2, BLACK);
   refresh();
@@ -332,34 +381,34 @@ void showSaved(int num) {
 void showTagSelect(int cursor) {
   clearWhite();
   if (tagCount <= 0) {
-    drawKicker("no tags", 34);
-    drawStrC(100, 100, "open portal", 1, BLACK);
+    drawKicker("暂无标签", 34);
+    drawStrC(100, 100, "请打开配置网页", 1, BLACK);
     refresh();
     return;
   }
-  drawKicker("choose tag", 17);
+  drawKicker("选择标签", 17);
   const int x = 36, w = 128, h = 21, gap = 7;
   int y0 = 40;
   cursor = constrain(cursor, 0, max(tagCount - 1, 0));
   for (int i=0; i<tagCount; i++) {
     int y = y0 + i*(h+gap);
-    drawModernPill(x, y, w, h, tags[i], i == cursor);
+    drawModernPill(x, y, w, h, localizedTag(tags[i]), i == cursor);
   }
   refresh();
 }
 
 void showMenu(int cursor) {
   clearWhite();
-  drawStr(16, 14, "menu", 1, BLACK);
+  drawStr(16, 14, "菜单", 1, BLACK);
   hline(16, 32, W-32, BLACK);
-  const int y0 = 42, step = 36;
+  const int y0 = 39, step = 29, rowH = 25;
   for (int row = 0; row < MENU_COUNT; row++) {
     bool active = row == cursor;
     int y = y0 + row * step;
-    if (active) fillRoundRect(16, y, 168, 31, 8, BLACK);
-    else        strokeRoundRect(16, y, 168, 31, 8, 1, BLACK);
+    if (active) fillRoundRect(16, y, 168, rowH, 7, BLACK);
+    else        strokeRoundRect(16, y, 168, rowH, 7, 1, BLACK);
     uint8_t col = active ? WHITE : BLACK;
-    drawStrInBox(16, y, 168, 31, MENU_ITEMS[row], 1, col);
+    drawStrInBox(16, y, 168, rowH, MENU_ITEMS[row], 1, col);
   }
   refresh();
 }
@@ -367,19 +416,19 @@ void showMenu(int cursor) {
 void showTagBrowser(int cursor) {
   clearWhite();
   if (tagCount <= 0) {
-    drawKicker("tags", 16);
-    drawStrC(100, 100, "no tags", 1, BLACK);
+    drawKicker("标签", 16);
+    drawStrC(100, 100, "暂无标签", 1, BLACK);
     refresh();
     return;
   }
-  drawKicker("tags", 16);
+  drawKicker("标签", 16);
   fillRoundRect(28, 56, 144, 54, 17, BLACK);
   cursor = constrain(cursor, 0, max(tagCount - 1, 0));
-  drawStrInBox(28, 56, 144, 54, tags[cursor], 2, WHITE);
+  drawStrInBox(28, 56, 144, 54, localizedTag(tags[cursor]), 2, WHITE);
   int cnt = 0;
   for (int i=0; i<(int)noteIndex.size(); i++)
     if (strcmp(noteIndex[i].tag, tags[cursor])==0) cnt++;
-  char cb[20]; snprintf(cb, sizeof(cb), "%d notes", cnt);
+  char cb[20]; snprintf(cb, sizeof(cb), "%d 条笔记", cnt);
   drawStrC(100, 130, cb, 1, BLACK);
   refresh();
 }
@@ -390,15 +439,16 @@ void showNoteList(int cursor) {
     tickerOffset = 0;
     tickerLastMs = millis();
   }
+  tickerScrollActive = false;
   clearWhite();
   int count = filteredCount();
-  char cb[16]; snprintf(cb, sizeof(cb), "%d notes", count);
-  drawStr(16, 14, "notes", 1, BLACK);
+  char cb[20]; snprintf(cb, sizeof(cb), "%d 条", count);
+  drawStr(16, 14, "笔记", 1, BLACK);
   int cw = textW(cb, 1);
   drawStr(W-16-cw, 14, cb, 1, BLACK);
   if (count <= 0) {
     drawMinimalDocIcon(100, 76, BLACK);
-    drawStrC(100, 116, "no notes yet", 1, BLACK);
+    drawStrC(100, 116, "暂无笔记", 1, BLACK);
     refresh();
     return;
   }
@@ -419,13 +469,13 @@ void showNoteDetail(int cursor) {
   clearWhite();
   int idx = noteAtFilteredIndex(cursor);
   if (idx < 0) {
-    drawStrC(100, 96, "not found", 1, BLACK);
+    drawStrC(100, 96, "未找到", 1, BLACK);
     refresh();
     return;
   }
   char n[8]; snprintf(n, sizeof(n), "#%03d", noteIndex[idx].num);
   drawStr(16, 14, n, 1, BLACK);
-  String tagLabel = normalizeForDisplay(String(noteIndex[idx].tag));
+  String tagLabel = normalizeForDisplay(String(localizedTag(noteIndex[idx].tag)));
   int tw = textW(tagLabel.c_str(), 1);
   drawStrFit(W-16-min(tw, 82), 14, 82, tagLabel.c_str(), 1, BLACK);
   hline(16, 32, W-32, BLACK);
@@ -450,7 +500,7 @@ void showNoteDetail(int cursor) {
     }
   } else {
     iconThinking(100, 82);
-    drawStrC(100, 122, "not synced", 1, BLACK);
+    drawStrC(100, 122, "尚未转写", 1, BLACK);
   }
   refresh();
 }
@@ -458,22 +508,22 @@ void showNoteDetail(int cursor) {
 void showDeleteConfirm(int noteNum) {
   clearWhite();
   fillRect(0, 0, W, 28, BLACK);
-  drawStrC(W/2, 10, "DELETE", 1, WHITE);
+  drawStrC(W/2, 10, "删除笔记", 1, WHITE);
   char label[16]; snprintf(label, sizeof(label), "#%03d", noteNum);
   drawStrC(W/2, 52, label, 2, BLACK);
-  drawStrC(W/2, 88, "Delete this note?", 1, BLACK);
-  drawStrC(W/2, 108, "WAV + TXT + meta", 1, BLACK);
+  drawStrC(W/2, 88, "确认删除这条笔记？", 1, BLACK);
+  drawStrC(W/2, 108, "录音和文字都会删除", 1, BLACK);
   hline(0, 179, W, BLACK);
   fillRect(0, 180, W, 20, WHITE);
-  drawStr(8, 186, "confirm", 1, BLACK);
-  int rw = textW("cancel", 1);
-  drawStr(W - 8 - rw, 186, "cancel", 1, BLACK);
+  drawStr(8, 186, "确认", 1, BLACK);
+  int rw = textW("取消", 1);
+  drawStr(W - 8 - rw, 186, "取消", 1, BLACK);
   refresh();
 }
 
 void showObsidianSync(int done, int total) {
   clearWhite();
-  drawKicker("vault", 20);
+  drawKicker("上传笔记", 20);
   iconSync(100, 76);
   int barW = 144, barH = 10, barX = 28, barY = 116;
   strokeRoundRect(barX, barY, barW, barH, 5, 1, BLACK);
@@ -483,14 +533,14 @@ void showObsidianSync(int done, int total) {
     char b[20]; snprintf(b, sizeof(b), "%d / %d", done, total);
     drawStrC(100, 142, b, 1, BLACK);
   } else {
-    drawStrC(100, 142, "please wait", 1, BLACK);
+    drawStrC(100, 142, "请稍候", 1, BLACK);
   }
   refresh();
 }
 
 void showTranscribing(int done, int total) {
   clearWhite();
-  drawKicker("syncing", 20);
+  drawKicker("正在转写", 20);
   iconThinking(100, 76);
   int barW = 144, barH = 10, barX = 28, barY = 116;
   strokeRoundRect(barX, barY, barW, barH, 5, 1, BLACK);
@@ -500,14 +550,14 @@ void showTranscribing(int done, int total) {
     char b[20]; snprintf(b, sizeof(b), "%d / %d", done, total);
     drawStrC(100, 142, b, 1, BLACK);
   } else {
-    drawStrC(100, 142, "please wait", 1, BLACK);
+    drawStrC(100, 142, "请稍候", 1, BLACK);
   }
   refresh();
 }
 
 void showWifiConnecting(int attempt, int maxA) {
   clearWhite();
-  drawKicker("wifi", 20);
+  drawKicker("连接网络", 20);
   iconWifi(100, 84);
   int barW = 130, barH = 10, barX = 35, barY = 140;
   strokeRoundRect(barX, barY, barW, barH, 5, 1, BLACK);
@@ -521,7 +571,7 @@ void showWifiConnecting(int attempt, int maxA) {
 void showDone() {
   clearWhite();
   drawCheckSmall(100, 70, BLACK);
-  drawStrC(100, 105, "all done", 1, BLACK);
+  drawStrC(100, 105, "全部完成", 1, BLACK);
   refresh();
 }
 
@@ -529,18 +579,13 @@ void showError(const char* msg) {
   clearWhite();
   iconError(100, 70);
   if (msg && strlen(msg) > 0) drawStrC(100, 118, msg, 1, BLACK);
-  else drawStrC(100, 118, "error", 1, BLACK);
+  else drawStrC(100, 118, "发生错误", 1, BLACK);
   refresh();
 }
 
 void showUltraSleepScreen() {
   clearWhite();
-  #ifdef LOGO_WIDTH
-    drawBitmap1BPP((W - LOGO_WIDTH) / 2, (H - LOGO_HEIGHT) / 2,
-                   logo_bitmap, LOGO_WIDTH, LOGO_HEIGHT, BLACK);
-  #else
-    drawProductWordmark(100, 70, BLACK);
-  #endif
+  drawProductWordmark(100, 70, BLACK);
   forceFullRefresh();   // this image persists through deep sleep; keep it crisp
 }
 
@@ -552,27 +597,27 @@ void showPlaybackOverlay() {
 
 void showTransferConnecting() {
   clearWhite();
-  drawKicker("transfer", 18);
+  drawKicker("传输模式", 18);
   iconWifi(100, 82);
-  drawStrC(100, 138, "connecting", 1, BLACK);
+  drawStrC(100, 138, "正在连接", 1, BLACK);
   refresh();
 }
 
 void showTransferMode(const char* ip) {
   clearWhite();
-  drawKicker("transfer", 16);
+  drawKicker("传输模式", 16);
   fillRoundRect(26, 48, 148, 58, 16, BLACK);
-  drawStrInBox(26, 48, 148, 24, "forrest portal", 1, WHITE);
-  drawStrInBox(26, 74, 148, 24, "active", 1, WHITE);
-  drawStrC(100, 124, "open browser", 1, BLACK);
+  drawStrInBox(26, 48, 148, 24, "记忆面包网页", 1, WHITE);
+  drawStrInBox(26, 74, 148, 24, "已开启", 1, WHITE);
+  drawStrC(100, 124, "请在浏览器打开", 1, BLACK);
   drawStrC(100, 146, ip, 1, BLACK);
-  drawStrC(100, 169, "double rec to exit", 1, BLACK);
+  drawStrC(100, 169, "长按录音键退出", 1, BLACK);
   refresh();
 }
 
 void showSettings(int cursor) {
   clearWhite();
-  drawStr(16, 14, "settings", 1, BLACK);
+  drawStr(16, 14, "设置", 1, BLACK);
   hline(16, 32, W-32, BLACK);
   const int y0 = 38, step = 32, boxH = 28;
   for (int row = 0; row < SETTINGS_COUNT; row++) {
@@ -582,16 +627,17 @@ void showSettings(int cursor) {
     else        strokeRoundRect(16, y, 168, boxH, 8, 1, BLACK);
     uint8_t col = active ? WHITE : BLACK;
     if (row == 0) {
-      drawStr(28, y + 8, "sounds", 1, col);
-      drawStr(W - 70, y + 8, palaSoundIsEnabled() ? "on" : "off", 1, col);
+      drawStr(28, y + 8, "提示音", 1, col);
+      const char* theme = palaSoundThemeName(palaSoundTheme());
+      drawStr(W - 28 - textW(theme, 1), y + 8, theme, 1, col);
     } else if (row == 1) {
-      drawStr(28, y + 8, "transfer", 1, col);
+      drawStr(28, y + 8, "传输", 1, col);
     } else if (row == 2) {
-      drawStr(28, y + 8, "device", 1, col);
+      drawStr(28, y + 8, "设备", 1, col);
     } else if (row == 3) {
-      drawStr(28, y + 8, "erase all", 1, col);
+      drawStr(28, y + 8, "全部删除", 1, col);
     } else {
-      drawStr(28, y + 8, "reset", 1, col);
+      drawStr(28, y + 8, "重置", 1, col);
     }
   }
   refresh();
@@ -599,46 +645,47 @@ void showSettings(int cursor) {
 
 void showDeviceInfo() {
   clearWhite();
-  drawStr(16, 14, "device", 1, BLACK);
+  drawStr(16, 14, "设备信息", 1, BLACK);
   hline(16, 32, W-32, BLACK);
-  drawStr(18, 50, "firmware", 1, BLACK);
+  drawStr(18, 50, "固件版本", 1, BLACK);
   drawStrFit(18, 68, 160, FIRMWARE_VERSION, 1, BLACK);
-  drawStr(18, 94, "board", 1, BLACK);
+  drawStr(18, 94, "开发板", 1, BLACK);
   drawStrFit(18, 112, 160, "ESP32-S3 ePaper 1.54", 1, BLACK);
-  char b[24]; snprintf(b, sizeof(b), "%d notes", (int)noteIndex.size());
+  char b[24]; snprintf(b, sizeof(b), "%d 条笔记", (int)noteIndex.size());
   drawStr(18, 138, b, 1, BLACK);
-  drawStr(18, 160, palaSoundIsEnabled() ? "sounds on" : "sounds off", 1, BLACK);
-  drawStr(18, 178, rtcUtcIso().length() ? "rtc set" : "rtc not set", 1, BLACK);
+  String soundInfo = String("提示音：") + palaSoundThemeName(palaSoundTheme());
+  drawStr(18, 160, soundInfo.c_str(), 1, BLACK);
+  drawStr(18, 178, rtcUtcIso().length() ? "时钟：已设置" : "时钟：未设置", 1, BLACK);
   refresh();
 }
 
 void showResetConfirm() {
   clearWhite();
-  drawKicker("factory reset", 18);
-  drawStrC(100, 64,  "erase wifi & key?", 1, BLACK);
-  drawStrC(100, 86,  "notes are kept", 1, BLACK);
+  drawKicker("恢复出厂设置", 18);
+  drawStrC(100, 64,  "清除网络和密钥？", 1, BLACK);
+  drawStrC(100, 86,  "笔记会保留", 1, BLACK);
   hline(20, 110, W - 40, BLACK);
-  drawStrC(100, 134, "rec = erase", 1, BLACK);
-  drawStrC(100, 156, "pwr = cancel", 1, BLACK);
+  drawStrC(100, 134, "录音键：确认", 1, BLACK);
+  drawStrC(100, 156, "电源键：取消", 1, BLACK);
   refresh();
 }
 
 void showResetDone() {
   clearWhite();
   drawCheckSmall(100, 70, BLACK);
-  drawStrC(100, 110, "reset done", 1, BLACK);
-  drawStrC(100, 132, "restarting", 1, BLACK);
+  drawStrC(100, 110, "重置完成", 1, BLACK);
+  drawStrC(100, 132, "正在重启", 1, BLACK);
   forceFullRefresh();
 }
 
 void showDeleteAllConfirm(int count, int cursor) {
   clearWhite();
   fillRect(0, 0, W, 26, BLACK);
-  drawStrC(W/2, 9, "ERASE ALL", 1, WHITE);
-  char label[20]; snprintf(label, sizeof(label), "%d notes", count);
+  drawStrC(W/2, 9, "全部删除", 1, WHITE);
+  char label[24]; snprintf(label, sizeof(label), "%d 条笔记", count);
   drawStrC(W/2, 40, label, 2, BLACK);
 
-  const char* opts[2] = { "Device only", "Device + GitHub" };
+  const char* opts[2] = { "仅设备", "设备和 GitHub" };
   const int y0 = 76, step = 34, boxH = 28;
   for (int i = 0; i < 2; i++) {
     bool active = (i == cursor);
@@ -650,8 +697,8 @@ void showDeleteAllConfirm(int count, int cursor) {
 
   hline(0, 179, W, BLACK);
   fillRect(0, 180, W, 20, WHITE);
-  drawStr(8, 186, "select", 1, BLACK);
-  const char* r = "hold=cancel";
+  drawStr(8, 186, "选择", 1, BLACK);
+  const char* r = "长按取消";
   drawStr(W - 8 - textW(r, 1), 186, r, 1, BLACK);
   refresh();
 }
@@ -659,8 +706,8 @@ void showDeleteAllConfirm(int count, int cursor) {
 void showDeleteAllDone(bool alsoVault) {
   clearWhite();
   drawCheckSmall(100, 70, BLACK);
-  drawStrC(100, 110, "all erased", 1, BLACK);
-  if (alsoVault) drawStrC(100, 132, "github on sync", 1, BLACK);
+  drawStrC(100, 110, "已全部删除", 1, BLACK);
+  if (alsoVault) drawStrC(100, 132, "同步时删除 GitHub", 1, BLACK);
   forceFullRefresh();
 }
 

@@ -1,142 +1,82 @@
-# Forrest Note 🎙️→📝
+# 记忆面包（Memory Bread）
 
-**A pocket voice-note device that records your voice, transcribes it, and uses AI to turn rambling speech into clean, coherent notes — synced straight to a GitHub repo and ready for Obsidian.**
+一个可以装进口袋的开源墨水屏 AI 语音笔记设备。
 
-Hold a button, talk, let go. A few seconds later a tidy Markdown note — with an AI-written title, a one-line summary, and a cleaned-up body — appears in your notes vault. The raw transcript is always preserved, too.
+按住录音键说话，松开即保存；也可以连续短按三次进入长录音。设备优先把完整 WAV 保存在 microSD 卡，等回到家或办公室后，再手动连接 Wi-Fi，使用硅基流动完成中文语音转写和 AI 整理，并通过闪念贝壳 MCP 保存成可检索的文字笔记。
 
----
+当前稳定固件：**v1.5-memorybread**
 
-## ✨ What it does
+> 本项目仍处于实机验证阶段。录音默认离线保存，云端转写和同步均由用户主动触发。
 
-- **One-button voice capture** on a tiny e-ink device — no screen-tapping, no phone.
-- **On-device transcription** via OpenAI Whisper.
-- **AI note cleanup (the headline upgrade):** a language model rewrites your messy, filler-filled speech into **coherent, succinct prose**, generates a **title**, a **one-sentence summary**, and **topic links** — automatically, every time you sync.
-- **Verbatim safety net:** the original raw transcript is tucked into a foldable callout, so nothing you said is ever lost.
-- **Syncs to GitHub** as clean Markdown with YAML frontmatter and tags — drop it into **Obsidian** and your notes organise themselves.
-- **No app, no account lock-in, no cloud middleman** — it talks directly to OpenAI and to *your* GitHub repo.
+## 它能做什么
 
----
+- 长按录音键记录碎片想法，松开后保存。
+- 亮屏时连续短按录音键三次，开始一个连续长 WAV；再短按一次结束。
+- 16 kHz、16 位、单声道 WAV，边采集边写入 microSD，不按分钟拆段。
+- 200 × 200 黑白墨水屏中文 UI，内置全部 20,992 个 Unicode 基本区汉字。
+- 最多保存三组 2.4 GHz Wi-Fi，支持热点配网和附近网络扫描。
+- 使用硅基流动 `FunAudioLLM/SenseVoiceSmall` 完成 ASR。
+- 使用硅基流动 `deepseek-ai/DeepSeek-V3.2` 生成标题、摘要和整理正文。
+- 通过闪念贝壳 MCP `note_create` 创建文字笔记，并用本地标记避免重复上传。
+- 手机网页端浏览、播放、下载、删除笔记和管理标签。
+- 三种提示音主题、深度睡眠、低电量保护和 HTTPS OTA。
+- 录音离线可用；没有 Wi-Fi、API Key 或 MCP Token 时，仍可作为普通录音设备。
 
-## 🙏 Credits
+## 硬件
 
-Forrest Note is built on the original **Pala Note** firmware — full credit to its original author for the hardware bring-up, the e-ink/audio/codec drivers, the recording engine, and the device UI. This project stands entirely on that foundation.
+固件针对以下开发板：
 
-> Original project: **Pala Note** — <https://ko-fi.com/s/674a1a82e0>
-> Huge thanks to the Pala Note author for the original device and firmware that made this possible.
+**Waveshare ESP32-S3-ePaper-1.54（黑白屏、N8R8）**
 
-### What the original Pala Note already did
+- ESP32-S3 双核 240 MHz
+- 8 MB Flash + 8 MB OPI PSRAM
+- 1.54 英寸 200 × 200 黑白电子墨水屏
+- 板载音频编解码、麦克风和扬声器
+- microSD / TF 卡槽
+- RTC、SHTC3 温湿度传感器
+- 锂电池充放电管理
+- BOOT / GPIO0 录音键与 PWR / GPIO18 电源键
+- 2.4 GHz Wi-Fi 与 Bluetooth LE
 
-Credit where it's due — the original firmware already provided: voice **recording**, **Whisper transcription**, a local note-transfer web server, on-device **tags**, sleep/power management, and all the low-level **e-ink, audio (ES8311/ES7210) and codec drivers** — plus the **physical device and 3D-printable case** design.
+参考购买页面：[微雪 ESP32-S3-ePaper-1.54](https://www.waveshare.net/shop/ESP32-S3-ePaper-1.54-EN.htm)
 
-### What this fork adds (the "Forrest Note" upgrade)
+本版固件不使用触摸功能。四彩 `1.54G` 版本和 RP2350 版本不是当前固件的目标板型。
 
-Everything below is new or changed on top of that foundation:
+## 工作流程
 
-| Upgrade | Type | What changed |
-|---|---|---|
-| 🤖 **AI note cleanup** | ➕ New | A `gpt-4o-mini` pass rewrites each transcript into coherent, succinct prose — removing "um", false starts, and repetition while preserving every fact, name, and number. |
-| 🧠 **AI metadata** | ➕ New | Auto-generated note **title**, one-line **summary** callout, and **topic backlinks** (`[[wikilinks]]`) plus auto-built tag index ("MOC") pages. |
-| 🗂️ **Original transcript preserved** | ➕ New | The verbatim transcript is kept in a foldable `> [!quote]- Original transcript` callout under the clean version. |
-| ☁️ **GitHub → Obsidian sync** | ➕ New | Notes are pushed to your own GitHub repo as Markdown via the GitHub Contents API, ready for Obsidian. |
-| 📶 **Runtime provisioning** | ➕ New | A `ForrestNote-Setup` Wi-Fi hotspot + captive portal stores Wi-Fi and keys in on-device NVS — **replacing the original's hardcoded `secrets.h`**. |
-| 🔒 **Real TLS validation** | 🔁 Changed | HTTPS now validates against the Mozilla CA bundle — replacing the original's insecure `setInsecure()`. |
-| 🔄 **OTA updates** | ➕ New | Firmware can be updated over the air from the portal (`/ota`), backed by a dual-OTA custom partition table (`partitions.csv`). |
-| 🐛 **Chunked-HTTP fix** | ➕ New | The HTTPS client now decodes `Transfer-Encoding: chunked` responses — which is what makes the OpenAI chat (enrichment) calls actually work. Without it, enrichment silently fails. |
-| 📊 **Snappier level meter** | 🔁 Changed | The live recording VU meter refresh rate was increased (~2 Hz → ~10 Hz), plus async/coalesced e-paper refresh for responsive UI. |
-| 🔐 **Zero secrets in code** | 🔁 Changed | Wi-Fi and API keys live on-device, not in the repo. |
-| 🏷️ **Title-named files** | 🔁 Changed | Each note is saved under its **one-word topic** (`Soho.md`) instead of `note_001.md`, so Obsidian shows a real title. Names are checked against the vault and auto-suffixed (`Soho 2.md`) on collision, so same-named notes never merge or re-link. |
-| ✍️ **One-word topic titles** | 🔁 Changed | The AI title is a single topic word (a clean filename + display name); the full context still lives in the summary and body. |
-| 📅 **Calendar events** | ➕ New | When a note describes a dated plan ("going to Soho House tomorrow", "dentist next Friday at 3"), the AI extracts it into `event_*` frontmatter (resolving "tomorrow" against the note's date). A small bridge can turn that into a real calendar event — see **Calendar sync**. |
-| 🧹 **Two-way delete** | ➕ New | Deleting a note on the device also removes its file from the GitHub vault and updates the tag index — via an offline-safe queue that drains on the next sync. |
-| 🗑️ **Erase All** | ➕ New | **Settings → Erase All** wipes every note from the SD card, with a choice of **Device only** (keep the vault) or **Device + GitHub** (also clear the vault). |
-
----
-
-## 🧰 Hardware
-
-This firmware is built for the **Waveshare ESP32-S3 1.54″ e-Paper AIoT Development Board** — a single board that integrates the MCU, display, audio, storage, sensors, and battery charging:
-
-> 🛒 **Reference board:** [Waveshare ESP32-S3 1.54inch e-Paper AIoT Dev Board](https://www.waveshare.com/esp32-s3-epaper-1.54.htm) (the **B/W**, non-"G" variant). Buy this exact board, print the original Pala Note case, flash this firmware — done.
-
-- **MCU:** ESP32-S3 (Xtensa LX7 dual-core @ 240 MHz) — **N8R8** stacked package: 8 MB flash + 8 MB **OCTAL (OPI)** PSRAM
-- **Display:** 1.54″ **200×200** e-paper (black/white)
-- **Audio:** onboard low-power audio codec + **microphone & speaker** (ES8311 / ES7210)
-- **Storage:** microSD / TF card (SD_MMC, 1-bit)
-- **Extras:** RTC chip, SHTC3 temp/humidity sensor, LiPo battery + onboard charge management
-- **Buttons:** Record (GPIO0 / BOOT) and Power (GPIO18)
-- **Wireless:** 2.4 GHz Wi-Fi + BLE 5
-
-> Note: there's also a four-colour **"1.54G"** variant — this firmware targets the **black/white** board.
-
-### 🧊 3D-printable case
-
-The printable enclosure (front & back housing, button, and an assembled STEP reference) is the original creator's hardware design and is **not redistributed here**. Download the case files from the original **Pala Note** project: <https://ko-fi.com/s/674a1a82e0>.
-
----
-
-## 📋 What you'll need before you start
-
-1. **The device** (assembled Pala Note hardware) and a **USB-C cable**.
-2. A computer (macOS/Linux/Windows).
-3. An **OpenAI API key** — from <https://platform.openai.com/api-keys>. (Used for Whisper transcription + note cleanup. Billing must be enabled.)
-4. A **GitHub repo** to store your notes (can be private) and a **fine-grained Personal Access Token** with **Contents: Read and write** on that repo — from <https://github.com/settings/tokens>.
-5. Your **2.4 GHz Wi-Fi** name + password (the ESP32-S3 Wi-Fi is 2.4 GHz only).
-
-> You do **not** put any of these into the code. You enter them on the device's setup hotspot (see **Setup**, below).
-
----
-
-## 🚀 Installation
-
-There are two paths: the **easy way** (let Claude Code do it for you) and the **manual way**. Both end the same place: firmware flashed onto your device.
-
-### Option A — The easy way (with Claude Code)
-
-If you have [Claude Code](https://claude.com/claude-code) installed, `cd` into this repo and paste these prompts one at a time. Each one is self-contained.
-
-**1. Install the toolchain & build the firmware:**
-
-```
-Set up my environment to build this Forrest Note ESP32-S3 firmware. Install arduino-cli if missing,
-install the esp32 board core version 3.2.0, and install the "Adafruit GFX Library" and "ArduinoJson"
-libraries. Then compile the sketch in ./forrest_note for an ESP32-S3 N8R8 board using these options:
-PSRAM=opi, PartitionScheme=custom, CDCOnBoot=cdc, FlashSize=8M. Report any errors.
+```text
+按键录音
+   ↓
+microSD 保存完整 WAV
+   ↓  用户手动进入“同步”
+硅基流动 SenseVoiceSmall 语音转写
+   ↓
+microSD 保存 TXT
+   ↓
+DeepSeek-V3.2 整理标题、摘要和正文
+   ↓
+闪念贝壳 MCP note_create
 ```
 
-**2. Flash it to the device:**
+原始 WAV 不会上传给闪念贝壳。同步失败不会删除本地 WAV 或 TXT，下次可以继续重试。
 
-```
-Flash the Forrest Note firmware in ./forrest_note to my connected ESP32-S3 device. The board only
-stays on its USB port if it's in the ROM bootloader, so walk me through this: tell me to HOLD the
-record button (BOOT/GPIO0), plug in USB while holding, and keep holding until the write finishes.
-Detect the serial port, then run the upload with the board options PSRAM=opi, PartitionScheme=custom,
-CDCOnBoot=cdc, FlashSize=8M. Confirm when the hash is verified.
-```
+## 快速上手
 
-**3. (Optional) Set up an Obsidian vault that auto-pulls your notes:**
+### 1. 准备材料
 
-```
-I want my Forrest Note notes (which the device pushes to my GitHub repo OWNER/REPO under the
-VoiceNotes/ folder) to show up in Obsidian. Clone that repo into a local folder, open it as an
-Obsidian vault, and configure the Obsidian Git community plugin to auto-pull every minute and on
-launch so new notes appear automatically. Don't push my Obsidian config back to the repo.
-```
+- 同款微雪 ESP32-S3 墨水屏开发板
+- FAT32 格式 microSD 卡
+- 支持数据传输的 USB-C 线
+- 2.4 GHz Wi-Fi
+- 硅基流动 API Key（云端转写需要）
+- 闪念贝壳 MCP Token（同步到闪念贝壳需要）
 
-> Replace `OWNER/REPO` with your actual repo. After flashing, continue to **Setup** below to provision the device.
+### 2. 烧录固件
 
-### Option B — Manual setup
-
-**1. Install `arduino-cli`** (or use the Arduino IDE — board/lib names are identical).
+安装 Arduino CLI、ESP32 3.2.0 核心及依赖：
 
 ```bash
-# macOS (Homebrew)
 brew install arduino-cli
-# or: curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-```
-
-**2. Install the ESP32 board core (version 3.2.0) and libraries:**
-
-```bash
 arduino-cli config init
 arduino-cli config add board_manager.additional_urls \
   https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
@@ -145,183 +85,126 @@ arduino-cli core install esp32:esp32@3.2.0
 arduino-cli lib install "Adafruit GFX Library" "ArduinoJson"
 ```
 
-**3. Compile** (run from the repo root):
+在仓库根目录编译：
 
 ```bash
 arduino-cli compile \
   -b "esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=custom,CDCOnBoot=cdc,FlashSize=8M" \
-  ./forrest_note
+  ./memory_bread
 ```
 
-You should see something like `Sketch uses ~1.43 MB (8%) of program storage space.`
+进入 ROM Bootloader：
 
-**4. Flash it.** ⚠️ **Flashing quirk:** this board powers its USB port down ~1 second after plug-in unless it's parked in the ROM bootloader. So:
+1. 拔下 USB；如果电池仍在供电，先断开电池。
+2. 按住 BOOT / GPIO0 录音键。
+3. 保持按住并插入 USB 数据线。
+4. 等待约两秒后松开 BOOT。
+5. 用 `arduino-cli board list` 找到串口。
 
-1. **Press and hold the record button** (BOOT / GPIO0).
-2. **While holding**, plug in the USB-C cable.
-3. **Keep holding** through the entire write.
-
-Find the port and upload:
+烧录：
 
 ```bash
-# find the port (macOS shows /dev/cu.usbmodemXXXX ; Linux /dev/ttyACM0 ; Windows COMx)
-arduino-cli board list
-
-arduino-cli compile --upload -p /dev/cu.usbmodemXXXX \
+arduino-cli compile --upload \
+  -p /dev/tty.usbmodemXXXX \
   -b "esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=custom,CDCOnBoot=cdc,FlashSize=8M" \
-  ./forrest_note
+  ./memory_bread
 ```
 
-When you see `Hash of data verified.` and `Hard resetting...`, release the button. Done.
+日志出现 `Hash of data verified.` 代表写入校验成功。普通烧录不会清除 NVS 配置和 microSD 卡内容。
 
-> **Arduino IDE alternative:** open `forrest_note/forrest_note.ino`, select board **ESP32S3 Dev Module**, then set: **PSRAM → OPI PSRAM**, **Partition Scheme → custom** (uses the included `partitions.csv`), **USB CDC On Boot → Enabled**, **Flash Size → 8MB**. Hold BOOT, plug in, click Upload.
+### 3. 配置 Wi-Fi 和服务
 
----
+1. 在设备打开“设置 → 传输”。
+2. 如果还没有可用 Wi-Fi，连接设备热点 `MemoryBread-Setup`。
+3. 浏览器访问 `http://192.168.4.1/provision`。
+4. 选择附近的 2.4 GHz Wi-Fi，最多可以保存三组网络。
+5. 填写硅基流动 API Key。
+6. 填写闪念贝壳 Bearer Token，并勾选自动写入开关。
+7. 保存设置，联网后点击“测试连接”。
 
-## 🔧 Setup — provision the device over its hotspot
+Key 和 Token 通过配置页存入 ESP32 的 NVS，不需要写进源码。完整步骤见[中文使用说明书](./USER_GUIDE_ZH.md)。
 
-The firmware ships with **no Wi-Fi or keys baked in**. On first boot (or any time it has no Wi-Fi credentials) it hosts a setup hotspot.
+## 按键操作
 
-1. **Power on the device.** With no Wi-Fi stored, it broadcasts an **open Wi-Fi network called `ForrestNote-Setup`**.
-2. **Connect your phone or laptop** to `ForrestNote-Setup`.
-3. **Open a browser** to **`http://192.168.4.1`** (most phones pop up the captive portal automatically). You'll land on the **forrest setup** page.
-4. **Fill in the form:**
-   | Field | What to enter |
-   |---|---|
-   | **Wi-Fi network (SSID)** | Your 2.4 GHz Wi-Fi name |
-   | **Wi-Fi password** | Your Wi-Fi password |
-   | **OpenAI API key (sk-...)** | Your OpenAI key |
-   | **GitHub repo (owner/name)** | e.g. `yourname/Notes` |
-   | **Branch** | `main` (default) |
-   | **Vault folder** | `VoiceNotes` (default) |
-   | **GitHub token (github_pat_...)** | Your fine-grained PAT with Contents R/W |
-   | ☑ **Enable GitHub sync** | tick this on |
-   | ☑ **AI titles + topic links** | tick this on (enables the AI cleanup) |
-5. **Tap Save.** The device stores everything in on-device NVS and reboots onto your Wi-Fi.
+| 场景 | 电源键 PWR | 录音键 BOOT / GPIO0 |
+|---|---|---|
+| 睡眠 | 唤醒进入菜单 | 按住唤醒并开始碎片录音 |
+| 待机 | 进入菜单 | 长按碎片录音；三击进入长录音 |
+| 菜单 | 短按移动 | 短按确认；长按返回 |
+| 长录音 | — | 短按结束并保存 |
+| 笔记列表 | 选择下一条 | 短按打开；长按返回 |
+| 笔记详情 | 短按翻页；长按删除 | 短按播放/停止；长按返回 |
 
-> Tip: you can re-open this page any time the device is on your network at `http://<device-ip>/provision` (or just reconnect to the setup hotspot). Leave any text field blank to keep its current value.
+录音关闭成功后会立即写入笔记索引，再进入标签选择页面。v1.5 还会在开机时恢复 microSD 卡中“已有 WAV、但索引缺失”的有效录音，并避免新录音覆盖这些文件。
 
-That's it — the device is now a personal AI note-taker.
+## 长录音
 
----
+- 亮屏待机时三击录音键，或者进入“菜单 → 长录音”。
+- 再短按录音键结束。
+- 一次录音生成一个连续 WAV，不会每分钟拆分。
+- 每约 30 秒更新一次 WAV 文件头，降低异常断电后整段无法播放的风险。
+- 空间不足、电量约 5% 或达到 12 小时安全上限时自动结束并保存。
+- 音频约占 1.92 MB/分钟，即约 115 MB/小时。
 
-## 🎛️ Using it
+硅基流动音频转写接口当前限制单个文件不超过 50 MB、时长不超过一小时。按本设备格式，超过约 25 分钟的录音会继续完整保存在 microSD，但当前固件尚未实现云端转写分块。
 
-| Action | Control |
-|---|---|
-| **Record a note** | Hold the **record** button while idle, speak, release |
-| **Stop recording** | Release the record button |
-| **Scroll / next** | Tap **power** |
-| **Select / open** | Tap **record** |
-| **Back** | Hold **record** |
-| **Delete a note** | Hold **power** (while viewing a note) — also removes it from the vault on next sync |
-| **Erase all notes** | **Settings → Erase All** → choose **Device only** or **Device + GitHub** (pwr switches, record selects, hold record cancels) |
+闪念贝壳整理流程当前最多读取转写文本前 20,000 字节，送入 DeepSeek 整理的内容为前 6,000 字节。因此很长的会议录音暂时不适合直接生成完整会议总结；后续需要加入文本分段总结与合并。
 
-After recording, the device transcribes and (when online) syncs to GitHub automatically. Each note becomes a Markdown file named after its topic, like `VoiceNotes/Soho.md`.
+## 存储和分区
 
----
+8 MB Flash 当前使用双 OTA 分区：
 
-## 🤖 How the AI pipeline works
+| 分区 | 大小 | 用途 |
+|---|---:|---|
+| App 0 | 3 MB | 当前运行固件 |
+| App 1 | 3 MB | OTA 备用固件 |
+| SPIFFS | 约 1.875 MB | 内部数据区 |
+| 其他 | 约 0.125 MB | NVS、OTA 信息和崩溃记录 |
 
-On sync, for each new note the firmware:
+当前开源构建的 v1.5 应用 BIN 为 2,193,568 字节，单个 App 分区仍有约 929.8 KiB。录音和笔记保存在 microSD，不占用应用分区。
 
-1. **Transcribes** the audio with **Whisper** (`whisper-1`).
-2. **Enriches** it with **`gpt-4o-mini`**, which returns: a one-word **topic title**, a one-sentence **summary**, a **cleaned** coherent rewrite of the body, up to 6 **topics**, and — when the note describes a dated plan — a calendar **event** (`{title, start, end, allDay}`, with relative dates like "tomorrow" resolved against the note's own date).
-3. **Writes Markdown** (named after the topic, e.g. `Soho.md`) and **pushes** it to your GitHub repo via the GitHub Contents API, plus updates a tag index page per tag.
+当前明确使用约 101 KiB PSRAM，其中约 96 KiB 是录音环形缓冲区，约 5 KiB 是墨水屏帧缓冲区。编译时必须保留 `PSRAM=opi`。
 
-A generated note looks like:
+## 云端服务与隐私
 
-```markdown
----
-title: "Soho"
-aliases: ["Soho"]
-date: 2026-06-22T18:10:00Z
-id: 11
-uid: Soho
-source: forrest-note
-tags: ["Note"]
-event_title: "Soho House"
-event_start: 2026-06-23T19:00
-event_end: 2026-06-23T21:00
-event_allday: false
----
+- **硅基流动**：接收用户主动同步的 WAV，并返回转写文本；随后接收部分转写文本进行 AI 整理。
+- **闪念贝壳**：接收标题、摘要、整理正文、原始转写片段和标签；不接收设备 WAV。
+- **本地网页**：仅在设备进入传输模式时运行，通常只在同一局域网或设备热点内可访问。
+- **旧版 GitHub/Obsidian**：源码中仍保留兼容实现，但收纳在配置页折叠区域，普通用户不需要启用。
 
-> [!summary] Planning to meet friends at Soho House tomorrow evening.
+不要在源码、Issue、截图或演示视频中公开 API Key、MCP Token、Wi-Fi 密码和个人笔记。已经公开过的凭据必须在服务商后台撤销并重新创建。
 
-I'm heading to Soho House tomorrow at seven to meet a couple of friends...
+## 文档
 
-> [!quote]- Original transcript
-> So I'm going to Soho House tomorrow, like seven-ish, meeting up with...
-```
+- [完整中文使用说明书](./USER_GUIDE_ZH.md)
+- [开源发布清单](./OPEN_SOURCE_CHECKLIST_ZH.md)
+- [自定义 Flash 分区](./memory_bread/partitions.csv)
+- [固件入口](./memory_bread/memory_bread.ino)
+- [第三方组件与字体许可](./THIRD_PARTY_NOTICES.md)
 
-The `event_*` fields only appear when the note actually describes a plan with a date/time.
+## 当前限制
 
----
+- 仅支持 2.4 GHz Wi-Fi；需要网页认证或 802.1X 的企业网络不可直接使用。
+- 当前没有定时自动上传，必须在设备菜单中手动执行“同步”。
+- 当前触摸版开发板的触摸层不响应。
+- 飞书同步仍是界面预留项，尚未实现。
+- 尚未实现从闪念贝壳搜索笔记并显示到设备。
+- 超过约 25 分钟的 WAV 尚未自动分块转写。
+- 提示音主题不控制录音播放音量，播放音量当前固定。
 
-## 🗂️ Obsidian integration
+## 路线图
 
-Because notes are plain Markdown with YAML frontmatter and `tags`, they work in Obsidian out of the box. To sync them into an Obsidian vault:
+- 长录音云端分块转写、逐段总结和最终合并。
+- 闪念贝壳搜索、读取和待办工具。
+- 飞书文档或多维表格同步。
+- 网页端修改笔记标题与标签。
+- 可调录音回放音量。
+- 更适合普通用户的本地 OTA 文件上传和正式固件 Release。
 
-1. **Clone** your notes repo locally.
-2. **Open the folder as an Obsidian vault.**
-3. Install the **Obsidian Git** community plugin and enable **auto-pull on launch** + an **interval pull** (1 min) so new device notes appear automatically.
+## 开源与致谢
 
-The `[[topic]]` backlinks and per-tag index pages give you an auto-built map of content. (The Claude Code prompt in *Installation → Option A, step 3* sets all of this up for you.)
+记忆面包建立在开源代码与社区硬件工作的基础上。上游代码、原始硬件项目和第三方组件的来源统一记录在[致谢与来源说明](./ACKNOWLEDGEMENTS.md)中，不作为产品名称或功能定位的一部分。
 
----
+## 许可证
 
-## 📅 Calendar sync
-
-Notes that mention a dated plan carry machine-readable event frontmatter (`event_title`, `event_start`, `event_end`, `event_allday`) — so *"I'm going to Soho House tomorrow at 7"* becomes:
-
-```yaml
-event_title: "Soho House"
-event_start: 2026-06-23T19:00
-event_end: 2026-06-23T21:00
-event_allday: false
-```
-
-Any automation that watches your vault can turn those into real calendar events. The firmware does the hard part (understanding the speech and resolving "tomorrow"); the bridge is just a few lines that read the frontmatter and create the event.
-
-- **Apple / iCloud Calendar (macOS):** a small Python + AppleScript script, triggered by a `launchd` agent that watches the notes folder, reads the `event_*` fields and creates the event in a chosen calendar (idempotent via a state file). iCloud has no cloud API, so this runs on your Mac.
-- **Google Calendar:** a GitHub Action on your notes repo can create events via the Google Calendar API on each push — fully cloud-side, no computer needed.
-
-> Using Claude Code? Ask it: *"Build me a bridge that watches my notes vault and creates an Apple Calendar event in my 'Event' calendar from each note's `event_*` frontmatter, installed as a launchd agent."*
-
----
-
-## ⚙️ Configuration reference
-
-All runtime config lives in the device's NVS (namespace `forrest`) and is set via the portal — never in code:
-
-- `WIFI_SSID` / `WIFI_PASS` — Wi-Fi credentials
-- `OPENAI_KEY` — OpenAI API key (Whisper + enrichment)
-- GitHub: `repo` (owner/name), `branch` (default `main`), `dir` (default `VoiceNotes`), `token`, `enabled`, `ai-enrich`
-
-`secrets.h` exists only as an optional **one-time seed** and ships with `"...."` placeholders — you normally never touch it.
-
----
-
-## 🛠️ Troubleshooting
-
-- **Device won't stay on the USB port for flashing** → that's expected; hold the record/BOOT button while plugging in and keep holding through the write.
-- **Build error about a duplicate `.cpp`** → delete any `* 2.cpp` / `* copy.cpp` files that cloud-sync may have created under `src/`.
-- **Boot loop / PSRAM errors** → make sure you selected **PSRAM = OPI** and **Flash Size = 8MB** (this is an N8R8 module).
-- **Notes sync but have no AI summary** → make sure **"AI titles + topic links"** is ticked in the portal and your OpenAI key has billing/chat access. (The chunked-HTTP fix in this fork is required for enrichment to work — make sure you flashed *this* firmware.)
-- **Wi-Fi won't connect** → the ESP32-S3 is **2.4 GHz only**; a 5 GHz-only network won't appear.
-
----
-
-## 🔒 Security & privacy
-
-- **No secrets in this repo.** Keys and Wi-Fi are entered on-device and stored in NVS.
-- Your notes go **only** to OpenAI (for transcription/cleanup) and to **your own** GitHub repo. There is no third-party server.
-- If you ever paste a real key into `secrets.h`, **do not commit it** (uncomment the `secrets.h` line in `.gitignore` first).
-
----
-
-## 📄 License
-
-Forrest Note's additions (the AI enrichment pipeline, the chunked-HTTP fix, the level-meter change, and this documentation) are released under the **MIT License** — see [`LICENSE`](LICENSE).
-
-The firmware is built on the original **Pala Note** project; please also honour the original author's license terms for their portions of the code.
+固件源码沿用仓库中的 [MIT License](./LICENSE)。生成的 Memory Bread CJK Bitmap 使用 SIL OFL 1.1；其他第三方库、图像与硬件资料遵循各自的许可证和使用条款，详见[第三方组件说明](./THIRD_PARTY_NOTICES.md)。

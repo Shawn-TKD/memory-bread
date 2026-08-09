@@ -20,7 +20,7 @@ extern const uint8_t x509_crt_bundle_end[]   asm("_binary_x509_crt_bundle_end");
 enum GhResult { GH_OK, GH_AUTH, GH_RATELIMIT, GH_NET, GH_OTHER };
 
 // Decode an HTTP/1.1 chunked-transfer body: repeated "<hexsize>\r\n<data>\r\n"
-// until a zero-size chunk. OpenAI's chat endpoint replies chunked (GitHub doesn't),
+// until a zero-size chunk. AI chat endpoints may reply chunked (GitHub usually doesn't),
 // and without this the raw body keeps its chunk markers and fails to JSON-parse.
 static String dechunkBody(const String& in) {
   String out; int i = 0, n = in.length();
@@ -82,7 +82,7 @@ static bool httpsSend(const char* host, const String& method, const String& path
     }
   }
   client.stop();
-  if (chunked) outBody = dechunkBody(outBody);        // OpenAI chat replies chunked
+  if (chunked) outBody = dechunkBody(outBody);
   return statusParsed;
 }
 
@@ -146,41 +146,29 @@ static bool enrichNote(const String& transcript, const String& nowLocal,
                        std::vector<String>& topics, NoteEvent& evt) {
   title = ""; summary = ""; cleaned = ""; topics.clear();
   evt = NoteEvent();
-  String key = cfg::openaiKey();
+  String key = cfg::siliconFlowKey();
   if (key.length() == 0 || WiFi.status() != WL_CONNECTED) return false;
 
   String input = transcript;
   if (input.length() > 6000) input = input.substring(0, 6000);
 
   DynamicJsonDocument reqDoc(9000 + input.length() * 2);
-  reqDoc["model"] = "gpt-4o-mini";
+  reqDoc["model"] = "deepseek-ai/DeepSeek-V3.2";
   reqDoc["temperature"] = 0;
+  reqDoc["enable_thinking"] = false;
   reqDoc.createNestedObject("response_format")["type"] = "json_object";
   JsonArray msgs = reqDoc.createNestedArray("messages");
   JsonObject sys = msgs.createNestedObject();
   sys["role"] = "system";
   sys["content"] =
-    "You clean up and label a raw voice-note transcript. Reply with ONLY a JSON object, "
-    "no prose, no code fences. Schema: {"
-    "\"title\": string (EXACTLY ONE word — the single main topic of the note, a noun in Title Case, no spaces), "
-    "\"summary\": string (1 sentence overview), "
-    "\"cleaned\": string (the note rewritten as clear, coherent, succinct markdown in the "
-    "speaker's own voice — first person if the original is. Remove filler words, false "
-    "starts, stutters and repetition; fix grammar and punctuation; keep ALL substantive "
-    "details, names, numbers, dates and intent; do NOT add anything that was not said. Use "
-    "short paragraphs, and markdown bullet points only when the note is naturally a list. "
-    "No headings.), "
-    "\"topics\": array of 0-6 strings (proper-noun topics or people mentioned, Title Case, "
-    "no # or brackets), "
-    "\"event\": object or null. Set it ONLY if the note describes a specific plan, "
-    "appointment or thing to attend with a date/time (e.g. 'going to Soho House tomorrow', "
-    "'dentist next Friday at 3'). Shape: {\"title\": short string, "
-    "\"start\": local datetime 'YYYY-MM-DDTHH:MM', \"end\": same format or empty, "
-    "\"allDay\": boolean}. Resolve relative dates ('today','tomorrow','next Friday') against "
-    "the current local date/time given below. If only a day is mentioned with no clock time, "
-    "set allDay true and use 00:00. If a start time is given but no end, leave end empty. "
-    "If there is no dated plan, set event to null}. If the transcript is empty or "
-    "unintelligible return {\"title\":\"\",\"summary\":\"\",\"cleaned\":\"\",\"topics\":[],\"event\":null}.";
+    "你负责整理原始语音笔记。只返回 JSON 对象，不要解释或代码块。字段："
+    "title 为 2-8 个汉字的核心主题（非中文内容则用简短原语言标题）；"
+    "summary 为一句话摘要；cleaned 为忠于原意的精炼正文，去掉口头禅、重复和停顿，"
+    "修正标点但不得添加未说过的信息，列表内容可用 Markdown 项目符号；"
+    "topics 为 0-6 个主题或人名字符串；event 仅在内容含明确日期或时间的计划时填写，"
+    "格式为 {\"title\":string,\"start\":\"YYYY-MM-DDTHH:MM\",\"end\":string,\"allDay\":boolean}，"
+    "否则为 null。相对日期以用户提供的当前本地时间为准。输出语言应与原文一致。"
+    "空白或无法理解时返回 {\"title\":\"\",\"summary\":\"\",\"cleaned\":\"\",\"topics\":[],\"event\":null}。";
   JsonObject usr = msgs.createNestedObject();
   usr["role"] = "user";
   usr["content"] = "Current local date/time: " + nowLocal + "\n\nTranscript:\n" + input;
@@ -191,7 +179,7 @@ static bool enrichNote(const String& transcript, const String& nowLocal,
     "Content-Type: application/json"
   };
   int status; String resp;
-  if (!httpsSend("api.openai.com", "POST", "/v1/chat/completions", headers, body, status, resp))
+  if (!httpsSend("api.siliconflow.cn", "POST", "/v1/chat/completions", headers, body, status, resp))
     return false;
   if (status != 200) { Serial.printf("[enrich] http %d\n", status); return false; }
 
@@ -235,7 +223,7 @@ static String buildNoteMarkdown(int num, const String& uid,
   if (createdUtc.length()) md += "date: " + createdUtc + "\n";
   md += "id: " + String(num) + "\n";
   md += "uid: " + uid + "\n";
-  md += "source: forrest-note\n";
+  md += "source: memory-bread\n";
 
   // frontmatter tags = user tag + topics (Obsidian tags can't contain spaces)
   String list = "";
@@ -301,7 +289,7 @@ static int githubGetSha(const String& path, String& sha) {   // returns HTTP sta
                "?ref=" + cfg::githubBranch();
   std::vector<String> headers = {
     "Authorization: Bearer " + cfg::githubToken(),
-    "User-Agent: ForrestNote",
+    "User-Agent: MemoryBread",
     "Accept: application/vnd.github+json"
   };
   int status; String resp;
@@ -336,7 +324,7 @@ static GhResult githubPutFile(const String& path, const String& content, const S
   String url = "/repos/" + cfg::githubRepo() + "/contents/" + urlEncodePath(path);
   std::vector<String> headers = {
     "Authorization: Bearer " + cfg::githubToken(),
-    "User-Agent: ForrestNote",
+    "User-Agent: MemoryBread",
     "Accept: application/vnd.github+json",
     "Content-Type: application/json"
   };
@@ -369,7 +357,7 @@ static GhResult githubDeleteFile(const String& path, const String& msg) {
   String url = "/repos/" + cfg::githubRepo() + "/contents/" + urlEncodePath(path);
   std::vector<String> headers = {
     "Authorization: Bearer " + cfg::githubToken(),
-    "User-Agent: ForrestNote",
+    "User-Agent: MemoryBread",
     "Accept: application/vnd.github+json",
     "Content-Type: application/json"
   };
@@ -508,7 +496,7 @@ void obsidianSyncAll() {
     if (tf) { while (tf.available() && transcript.length() < 131072) transcript += (char)tf.read(); tf.close(); }
 
     String title, summary, cleaned; std::vector<String> topics; NoteEvent evt;
-    bool aiOn = cfg::githubAiEnrich(), haveKey = cfg::hasOpenAiKey();
+    bool aiOn = cfg::githubAiEnrich(), haveKey = cfg::hasSiliconFlowKey();
     if (aiOn && haveKey) {
       bool ok = enrichNote(transcript, noteCreatedDeviceLabel(num),
                            title, summary, cleaned, topics, evt);

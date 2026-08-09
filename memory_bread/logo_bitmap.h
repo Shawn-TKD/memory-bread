@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 // 1bpp bitmap, row-major, MSB-first (1 = black, 0 = white).
-// Sleep screen: "Forrest Note" handwritten wordmark (Noteworthy Bold).
+// Legacy bitmap retained for compatibility; the sleep screen is drawn as "记忆面包".
 #define LOGO_WIDTH  200
 #define LOGO_HEIGHT 200
 

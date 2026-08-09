@@ -24,6 +24,7 @@ extern bool      wakeToRecRequested;
 extern uint32_t  tickerLastMs;
 extern int       tickerOffset;
 extern int       tickerCursor;
+extern bool      tickerScrollActive;
 
 extern WebServer  transferServer;
 extern bool       transferServerActive;

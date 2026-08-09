@@ -1,5 +1,6 @@
 # ── Arduino / ESP32 build artifacts ──────────────────────────────────────────
 build/
+.build/
 *.bin
 *.elf
 *.map
@@ -7,11 +8,15 @@ build/
 
 # ── macOS / editor cruft ─────────────────────────────────────────────────────
 .DS_Store
+__pycache__/
+*.pyc
+tools/fonts/*.otf
+tools/fonts/*.ttf
 *.bak
 *.swp
 .vscode/
 
 # ── Safety: never commit real credentials ────────────────────────────────────
-# secrets.h ships with "...." placeholders and is safe to track. If you ever
-# paste REAL keys into it, uncomment the next line FIRST so git ignores it:
-# secrets.h
+# secrets.h ships with "...." placeholders and is tracked as a build template.
+# Do not paste real keys into source files. Enter credentials through the
+# device provisioning page so they remain in the device's NVS configuration.

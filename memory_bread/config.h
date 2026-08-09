@@ -56,6 +56,13 @@
 #define SAMPLE_RATE  16000
 #define REC_BUF      (8 * 1024)
 #define MAX_REC_MS   (5UL * 60UL * 1000UL)   // hard cap on a single recording (5 min)
+#define LONG_REC_MAX_MS (12UL * 60UL * 60UL * 1000UL) // one WAV, up to 12 h
+#define LONG_REC_UI_MS          15000UL
+#define LONG_REC_CHECKPOINT_MS  30000UL
+#define LONG_REC_BATTERY_MS     60000UL
+#define LONG_REC_STOP_ARM_MS      800UL
+#define LONG_REC_RESERVE_BYTES (2ULL * 1024ULL * 1024ULL)
+#define LONG_REC_MIN_FREE_BYTES (3ULL * 1024ULL * 1024ULL)
 #define REC_RING_LEN (96 * 1024)             // PSRAM ring to absorb SD write stalls
 #define MIC_GAIN_DB  45.0f                   // ES7210 input gain
 #define SPK_VOL_MAX  100.0f                  // ES8311 output volume ceiling
@@ -71,6 +78,8 @@
 #define REC_HOLD_MS         350
 #define BTN_LONG_MS         450     // hold threshold for "back"/secondary (lower = snappier)
 #define BTN_DEBOUNCE_MS     12      // press must persist this long to count
+#define REC_TRIPLE_GAP_MS   450
+#define REC_TRIPLE_COUNT    3
 #define LOOP_DELAY_MS       4       // main-loop poll period (was 15; lower = more responsive)
 #define ULTRA_SLEEP_MS      120000UL
 #define TICKER_INTERVAL_MS  950
@@ -81,8 +90,8 @@
 #define BAT_RECOVER_THRESHOLD  20
 
 /* Time & firmware */
-#define LOCAL_TIME_OFFSET_MIN  120   // UTC+2 (Germany summer). Set to your offset.
-#define FIRMWARE_VERSION       "v1.0"
-#define FW_VERSION             "v1.0"
+#define LOCAL_TIME_OFFSET_MIN  480   // China Standard Time (UTC+8)
+#define FIRMWARE_VERSION       "v1.5-memorybread"
+#define FW_VERSION             "v1.5-memorybread"
 
 #endif // CONFIG_H

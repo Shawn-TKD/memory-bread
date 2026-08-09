@@ -5,6 +5,7 @@
 #include "buttons.h"
 
 extern void startRecordFlow();
+extern void startLongRecordFlow();
 extern void resetActivity();
 
 bool isDown(int pin) { return digitalRead(pin) == LOW; }
@@ -57,18 +58,38 @@ ButtonEvent readButtonEvent(int pin) {
   return EV_NONE;
 }
 
-// Non-blocking hold-to-record in IDLE: tracks the press across loop iterations and
-// fires startRecordFlow() once the hold reaches REC_HOLD_MS.
+// IDLE gestures: hold for a quick note, or use three short taps for one long WAV.
+// A hold wins as soon as it crosses REC_HOLD_MS, so triple-tap detection never
+// delays the primary quick-note gesture. One or two accidental taps do nothing.
 bool handleIdleRec() {
   static bool tracking = false;
   static uint32_t t0 = 0;
-
-  if (!isDown(BTN_REC)) { tracking = false; return false; }
+  static uint32_t lastRelease = 0;
+  static uint8_t tapCount = 0;
 
   uint32_t now = millis();
+  if (tapCount > 0 && now - lastRelease > REC_TRIPLE_GAP_MS) tapCount = 0;
+
+  if (!isDown(BTN_REC)) {
+    if (!tracking) return false;
+
+    tracking = false;
+    if (now - t0 < BTN_DEBOUNCE_MS) return true;
+    tapCount = (tapCount > 0 && now - lastRelease <= REC_TRIPLE_GAP_MS)
+                 ? tapCount + 1 : 1;
+    lastRelease = now;
+    resetActivity();
+    if (tapCount >= REC_TRIPLE_COUNT) {
+      tapCount = 0;
+      startLongRecordFlow();
+    }
+    return true;
+  }
+
   if (!tracking) { tracking = true; t0 = now; resetActivity(); return true; }
   if (now - t0 >= REC_HOLD_MS) {
     tracking = false;
+    tapCount = 0;
     startRecordFlow();
   }
   return true;   // consume the press while it's held

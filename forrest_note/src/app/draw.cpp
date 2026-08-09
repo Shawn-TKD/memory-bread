@@ -8,6 +8,7 @@
 #include <Fonts/FreeSans12pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <Fonts/FreeSansBold18pt7b.h>
+#include "zh_font.h"
 #include <math.h>
 
 // W and H are defined in the .ino. Pull them in via globals.
@@ -189,8 +190,11 @@ void refresh() {
 // immediately (panel repaints in the background). Periodically promotes to a
 // full refresh to clear ghosting.
 void refreshAsyncFromBuffer() {
-  if (++partialRefreshCount >= FULL_REFRESH_EVERY) forceFullRefresh();   // sync, but rare
-  else display->EPD_DisplayPartTrigger();
+  // Never promote an interactive async redraw into a blocking ~2 s full refresh:
+  // that used to swallow button presses in note list/detail. Synchronous screens
+  // and deep-sleep entry still perform the periodic cleanup via refresh()/force.
+  partialRefreshCount++;
+  display->EPD_DisplayPartTrigger();
 }
 
 // ─── Large digit renderer ──────────────────────────────────────────────────
@@ -343,9 +347,51 @@ const GFXfont* uiFontForScale(int scale) {
 }
 
 int uiFontHeight(int scale) {
-  if (scale <= 1) return 14;
-  if (scale == 2) return 22;
-  return 31;
+  if (scale <= 1) return 16;
+  if (scale == 2) return 32;
+  return 48;
+}
+
+static uint32_t utf8Next(const char*& s) {
+  const uint8_t* p = (const uint8_t*)s;
+  if (!*p) return 0;
+  if (*p < 0x80) { s++; return *p; }
+  if ((*p & 0xE0) == 0xC0 && p[1]) {
+    uint32_t cp = ((p[0] & 0x1F) << 6) | (p[1] & 0x3F); s += 2; return cp;
+  }
+  if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) {
+    uint32_t cp = ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F); s += 3; return cp;
+  }
+  if ((*p & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+    uint32_t cp = ((p[0] & 7) << 18) | ((p[1] & 0x3F) << 12) |
+                  ((p[2] & 0x3F) << 6) | (p[3] & 0x3F); s += 4; return cp;
+  }
+  s++;
+  return 0xFFFD;
+}
+
+static int zhGlyphIndex(uint32_t cp) {
+  if (cp > 0xFFFF) return -1;
+  int lo = 0, hi = ZH_GLYPH_COUNT - 1;
+  while (lo <= hi) {
+    int mid = lo + (hi - lo) / 2;
+    uint16_t v = pgm_read_word(&ZH_CODEPOINTS[mid]);
+    if (v == cp) return mid;
+    if (v < cp) lo = mid + 1; else hi = mid - 1;
+  }
+  return -1;
+}
+
+static int asciiAdvance(uint8_t c, const GFXfont* font) {
+  uint8_t first = pgm_read_byte(&font->first), last = pgm_read_byte(&font->last);
+  if (c < first || c > last) return 0;
+  GFXglyph* glyph = &(((GFXglyph*)pgm_read_ptr(&font->glyph))[c - first]);
+  return pgm_read_byte(&glyph->xAdvance);
+}
+
+static int codepointAdvance(uint32_t cp, int scale) {
+  if (cp < 0x80) return asciiAdvance((uint8_t)cp, uiFontForScale(scale));
+  return (16 * max(scale, 1)) + max(scale, 1);
 }
 
 void textBoundsFont(const char* s, int scale, int* minX, int* minY, int* maxX, int* maxY, int* advOut) {
@@ -356,8 +402,20 @@ void textBoundsFont(const char* s, int scale, int* minX, int* minY, int* maxX, i
   *minX =  32767; *minY =  32767;
   *maxX = -32768; *maxY = -32768;
 
+  int maxH = 0;
   while (*s) {
-    uint8_t c = (uint8_t)*s++;
+    uint32_t cp = utf8Next(s);
+    if (cp >= 0x80) {
+      int side = 16 * max(scale, 1);
+      if (x < *minX) *minX = x;
+      if (0 < *minY) *minY = 0;
+      if (x + side > *maxX) *maxX = x + side;
+      if (side > *maxY) *maxY = side;
+      x += side + max(scale, 1);
+      maxH = max(maxH, side);
+      continue;
+    }
+    uint8_t c = (uint8_t)cp;
     if (c >= first && c <= last) {
       GFXglyph* glyph = &(((GFXglyph*)pgm_read_ptr(&font->glyph))[c - first]);
       uint8_t gw = pgm_read_byte(&glyph->width);
@@ -384,6 +442,24 @@ int textW(const char* s, int scale) {
   int minX,minY,maxX,maxY,adv;
   textBoundsFont(s, scale, &minX, &minY, &maxX, &maxY, &adv);
   return max(maxX - minX, adv);
+}
+
+static void drawZhGlyph(int x, int y, uint32_t cp, int scale, uint8_t color) {
+  int idx = zhGlyphIndex(cp);
+  int mul = max(scale, 1);
+  if (idx < 0) {
+    strokeRect(x + 1, y + 1, 14 * mul, 14 * mul, max(1, mul), color);
+    return;
+  }
+  for (int yy = 0; yy < 16; yy++) {
+    uint8_t left = pgm_read_byte(&ZH_BITMAPS[idx][yy * 2]);
+    uint8_t right = pgm_read_byte(&ZH_BITMAPS[idx][yy * 2 + 1]);
+    for (int xx = 0; xx < 16; xx++) {
+      uint8_t bits = xx < 8 ? left : right;
+      if (bits & (0x80 >> (xx & 7)))
+        fillRect(x + xx * mul, y + yy * mul, mul, mul, color);
+    }
+  }
 }
 
 void drawGlyphFont(int x, int baseline, char ch, const GFXfont* font, uint8_t color, int* adv) {
@@ -418,10 +494,15 @@ void drawStr(int x, int y, const char* s, int scale, uint8_t color) {
   int cursor   = x - minX;
   int baseline = y - minY;
   while (*s) {
-    int adv = 0;
-    drawGlyphFont(cursor, baseline, *s, font, color, &adv);
-    cursor += adv;
-    s++;
+    uint32_t cp = utf8Next(s);
+    if (cp < 0x80) {
+      int adv = 0;
+      drawGlyphFont(cursor, baseline, (char)cp, font, color, &adv);
+      cursor += adv;
+    } else {
+      drawZhGlyph(cursor, y, cp, scale, color);
+      cursor += codepointAdvance(cp, scale);
+    }
   }
 }
 
@@ -430,20 +511,18 @@ void drawStrC(int cx, int y, const char* s, int scale, uint8_t color) {
 }
 
 void drawStrFit(int x, int y, int maxW, const char* s, int scale, uint8_t color) {
-  char buf[80];
+  char buf[240];
   strncpy(buf, s ? s : "", sizeof(buf)-1);
   buf[sizeof(buf)-1] = 0;
 
   if (textW(buf, scale) <= maxW) { drawStr(x, y, buf, scale, color); return; }
 
   int len = strlen(buf);
-  while (len > 0 && textW(buf, scale) > maxW) {
-    len--;
+  while (len > 0 && textW((String(buf) + "...").c_str(), scale) > maxW) {
+    do { len--; } while (len > 0 && (((uint8_t)buf[len] & 0xC0) == 0x80));
     buf[len] = 0;
-    if (len > 3) {
-      buf[len-3] = '.'; buf[len-2] = '.'; buf[len-1] = '.'; buf[len] = 0;
-    }
   }
+  strncat(buf, "...", sizeof(buf) - strlen(buf) - 1);
   drawStr(x, y, buf, scale, color);
 }
 
@@ -477,7 +556,7 @@ String normalizeForDisplay(const String& in) {
   String out = "";
   for (int i = 0; i < (int)s.length(); i++) {
     unsigned char c = (unsigned char)s[i];
-    if (c >= 32 && c <= 126) out += (char)c;
+    if (c >= 32) out += (char)c;  // preserve UTF-8 bytes for Chinese text
     else if (c == '\n' || c == '\r' || c == '\t') out += ' ';
   }
   while (out.indexOf("  ") >= 0) out.replace("  ", " ");
@@ -488,67 +567,32 @@ String normalizeForDisplay(const String& in) {
 int drawWrappedText(int x, int y, int maxW, int lineH, int maxLines,
                     const String& rawText, uint8_t color, int skipLines) {
   String text = normalizeForDisplay(rawText);
-  text.replace("\n", " "); text.replace("\r", " ");
-
-  int logical = 0, drawn = 0;
-  String line = "";
-  int pos = 0;
+  int logical = 0, drawn = 0, pos = 0;
+  String lineText;
+  auto flushLine = [&]() {
+    while (lineText.endsWith(" ")) lineText.remove(lineText.length() - 1);
+    if (logical >= skipLines && drawn < maxLines && lineText.length()) {
+      drawStr(x, y + drawn * lineH, lineText.c_str(), 1, color);
+      drawn++;
+    }
+    if (lineText.length()) logical++;
+    lineText = "";
+  };
 
   while (pos < (int)text.length()) {
-    while (pos < (int)text.length() && text[pos] == ' ') pos++;
-    if (pos >= (int)text.length()) break;
-
-    int nextSpace = text.indexOf(' ', pos);
-    String word;
-    if (nextSpace < 0) { word = text.substring(pos); pos = text.length(); }
-    else               { word = text.substring(pos, nextSpace); pos = nextSpace + 1; }
-
-    String candidate = line.length() ? line + " " + word : word;
-
-    if (textW(candidate.c_str(), 1) <= maxW) { line = candidate; continue; }
-
-    if (line.length()) {
-      if (logical >= skipLines && drawn < maxLines) {
-        String toDraw = line;
-        if (drawn == maxLines - 1) {
-          while (textW((toDraw + "...").c_str(), 1) > maxW && toDraw.length() > 0)
-            toDraw.remove(toDraw.length() - 1);
-          toDraw += "...";
-        }
-        drawStr(x, y + drawn * lineH, toDraw.c_str(), 1, color);
-        drawn++;
-      }
-      logical++;
-      line = word;
-    } else {
-      String part = word;
-      while (textW((part + "-").c_str(), 1) > maxW && part.length() > 1)
-        part.remove(part.length() - 1);
-
-      if (part.length() <= 1) {
-        if (logical >= skipLines && drawn < maxLines) {
-          drawStrFit(x, y + drawn * lineH, maxW, word.c_str(), 1, color);
-          drawn++;
-        }
-        logical++;
-        line = "";
-      } else {
-        if (logical >= skipLines && drawn < maxLines) {
-          drawStr(x, y + drawn * lineH, (part + "-").c_str(), 1, color);
-          drawn++;
-        }
-        logical++;
-        word = word.substring(part.length());
-        line = word;
-      }
+    int start = pos;
+    uint8_t first = (uint8_t)text[pos++];
+    if (first >= 0xC0) {
+      int extra = first < 0xE0 ? 1 : (first < 0xF0 ? 2 : 3);
+      pos = min((int)text.length(), pos + extra);
     }
+    String ch = text.substring(start, pos);
+    if (ch == "\n" || ch == "\r") { flushLine(); continue; }
+    if (!lineText.length() && ch == " ") continue;
+    String candidate = lineText + ch;
+    if (textW(candidate.c_str(), 1) > maxW && lineText.length()) flushLine();
+    if (!(lineText.length() == 0 && ch == " ")) lineText += ch;
   }
-
-  if (line.length()) {
-    if (logical >= skipLines && drawn < maxLines)
-      drawStr(x, y + drawn * lineH, line.c_str(), 1, color);
-    logical++;
-  }
-
+  flushLine();
   return logical;
 }

@@ -37,6 +37,8 @@ void showIdle();
 void showBatteryLow(int pct);
 void showRecording();
 void showRecordingLive(uint32_t elapsedMs, int level);
+void showLongRecording();
+void showLongRecordingLive(uint32_t elapsedMs, uint32_t remainingMinutes);
 void showSaved(int num);
 void showTagSelect(int cursor);
 void showMenu(int cursor);

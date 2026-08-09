@@ -4,7 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // You normally do NOT need to edit this file.
 //
-// Forrest Note is provisioned at runtime over its Wi-Fi setup hotspot
+// Memory Bread is provisioned at runtime over its Wi-Fi setup hotspot
 // (see the README → "Setup"). Leave the "...." placeholders below and the
 // firmware will boot straight into setup mode on first launch.
 //
@@ -19,6 +19,6 @@
 
 #define WIFI_SSID   "...."   // your 2.4 GHz Wi-Fi name   (or leave as "...." )
 #define WIFI_PASS   "...."   // your Wi-Fi password       (or leave as "...." )
-#define OPENAI_KEY  "...."   // OpenAI API key            (or leave as "...." )
+#define SILICONFLOW_KEY "...." // Configure at runtime; never commit a real key
 
 #endif

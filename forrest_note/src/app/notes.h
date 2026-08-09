@@ -4,6 +4,7 @@
 void   loadIndex();
 void   saveIndex();
 void   addToIndex(int num, const char* tag, bool hasText);
+int    recoverOrphanRecordings(const char* defaultTag);
 void   updateIndexHasText(int num);
 void   deleteNote(int num);
 int    deleteAllNotes(bool alsoVault = false);   // wipe all notes off SD; alsoVault also queues vault deletes. returns count

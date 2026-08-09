@@ -6,14 +6,27 @@
 // firmware binary that gets flashed/shared. Provisioned at runtime over the
 // setup portal (SoftAP) or seeded once from secrets.h for backward compat.
 namespace cfg {
+  static constexpr uint8_t MAX_WIFI_NETWORKS = 3;
   void   begin();                                       // load NVS, one-time seed from secrets.h
-  String wifiSsid();
-  String wifiPass();
-  String openaiKey();
+  String wifiSsid(uint8_t slot);
+  String wifiPass(uint8_t slot);
+  uint8_t wifiCount();
+  int8_t lastWifiSlot();
+  void   setLastWifiSlot(uint8_t slot);
+  String siliconFlowKey();
   bool   hasWifi();                                     // Wi-Fi credentials present
-  bool   hasOpenAiKey();                                // transcription key present
-  bool   setWifi(const String& ssid, const String& pass);
-  bool   setOpenAiKey(const String& key);
+  bool   hasSiliconFlowKey();                           // ASR + summary key present
+  bool   setWifi(uint8_t slot, const String& ssid, const String& pass);
+  void   clearWifi(uint8_t slot);
+  bool   setSiliconFlowKey(const String& key);
+  uint8_t soundTheme();                                  // 0=off, 1=water, 2=classic, 3=wood
+  void    setSoundTheme(uint8_t theme);
+
+  String ideashellToken();
+  bool   ideashellEnabled();
+  bool   hasIdeashell();
+  bool   setIdeashellToken(const String& token);
+  void   setIdeashellEnabled(bool on);
 
   // GitHub / Obsidian vault sync
   String githubToken();

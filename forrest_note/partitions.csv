@@ -1,4 +1,4 @@
-# Forrest Note — 8 MB flash, dual-OTA layout.
+# Memory Bread — 8 MB flash, dual-OTA layout.
 # Two 3 MB app slots (ota_0 / ota_1) enable safe over-the-air updates with
 # rollback. Notes/audio live on the SD card, so the on-flash data partition is
 # small. Build with PartitionScheme=custom (FQBN ...:PartitionScheme=custom).

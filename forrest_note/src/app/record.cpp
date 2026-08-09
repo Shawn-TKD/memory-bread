@@ -7,6 +7,7 @@
 #include "esp_heap_caps.h"
 #include "notes.h"
 #include "ui.h"
+#include "battery.h"
 #include "../../sounds.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -46,10 +47,38 @@ static void recProducerTask(void* arg) {
   vTaskDelete(NULL);
 }
 
-bool record() {
+static void writeWavHeader(File& f, uint32_t dataBytes, bool flushNow) {
+  uint32_t fileSize = dataBytes + 36;
+  uint32_t byteRate = SAMPLE_RATE * 2;
+  uint32_t fmtLen = 16;
+  uint32_t sampleRate = SAMPLE_RATE;
+  uint16_t blockAlign = 2, audioFormat = 1, channels = 1, bitsPerSample = 16;
+
+  f.seek(0);
+  f.write((uint8_t*)"RIFF", 4); f.write((uint8_t*)&fileSize, 4);
+  f.write((uint8_t*)"WAVE", 4); f.write((uint8_t*)"fmt ", 4);
+  f.write((uint8_t*)&fmtLen, 4); f.write((uint8_t*)&audioFormat, 2);
+  f.write((uint8_t*)&channels, 2); f.write((uint8_t*)&sampleRate, 4);
+  f.write((uint8_t*)&byteRate, 4); f.write((uint8_t*)&blockAlign, 2);
+  f.write((uint8_t*)&bitsPerSample, 2);
+  f.write((uint8_t*)"data", 4); f.write((uint8_t*)&dataBytes, 4);
+  f.seek(44 + dataBytes);
+  if (flushNow) f.flush();
+}
+
+bool record(bool longMode) {
   int num = nextNoteNumber();
   char path[64]; snprintf(path, sizeof(path), "%s/note_%03d.wav", NOTES_DIR, num);
-  Serial.printf("[Rec] %s\n", path);
+  Serial.printf("[Rec] %s mode=%s\n", path, longMode ? "long" : "quick");
+
+  uint64_t totalCapacity = SD_MMC.totalBytes();
+  uint64_t usedAtStart = SD_MMC.usedBytes();
+  uint64_t freeAtStart = totalCapacity > usedAtStart ? totalCapacity - usedAtStart : 0;
+  if (longMode && freeAtStart < LONG_REC_MIN_FREE_BYTES) {
+    Serial.printf("[Rec] insufficient free space: %llu bytes\n",
+                  (unsigned long long)freeAtStart);
+    return false;
+  }
 
   File f = SD_MMC.open(path, FILE_WRITE);
   if (!f) return false;
@@ -70,6 +99,7 @@ bool record() {
   }
 
   uint32_t totalMono = 0, t0 = millis();
+  bool     writeFailed = false;
   int      recPeak = 0;   // peak |sample| since the last UI update
 
   auto drain = [&](TickType_t wait) -> bool {
@@ -82,23 +112,69 @@ bool record() {
     size_t written = f.write((uint8_t*)item, got);
     vRingbufferReturnItem(ctx.ring, item);
     totalMono += written;
+    if (written != got) writeFailed = true;
     return true;
   };
 
-  // Record while held (min 500 ms), up to the hard duration cap. Drive the live
-  // timer + level meter as fast as the panel will take it (~10x/sec); the partial
-  // refresh is non-blocking and showRecordingLive() drops frames while it paints,
-  // so a tight cadence just means the meter tracks the latest peak instead of lagging.
-  uint32_t lastUi = 0;
-  while ((digitalRead(BTN_REC) == LOW || millis() - t0 < 500) &&
-         (millis() - t0 < MAX_REC_MS)) {
+  // Quick mode records while held. Long mode streams one continuous WAV until
+  // the next clean REC tap, the safety cap, low battery, or low free space.
+  uint32_t lastUi = 0, lastCheckpoint = 0, lastBattery = 0;
+  bool stopRequested = false, stopTapDown = false;
+  uint32_t stopTapStarted = 0;
+  if (longMode) {
+    uint32_t remainingMinutes = (uint32_t)(freeAtStart / (SAMPLE_RATE * 2ULL * 60ULL));
+    showLongRecordingLive(0, remainingMinutes);
+  }
+
+  while (!stopRequested) {
     drain(pdMS_TO_TICKS(40));
     uint32_t now = millis();
-    if (now - lastUi >= 100) {
+    uint32_t elapsed = now - t0;
+    if (writeFailed) stopRequested = true;
+
+    if (!longMode) {
+      if ((digitalRead(BTN_REC) != LOW && elapsed >= 500) || elapsed >= MAX_REC_MS)
+        stopRequested = true;
+    } else {
+      if (elapsed >= LONG_REC_STOP_ARM_MS) {
+        bool down = digitalRead(BTN_REC) == LOW;
+        if (down && !stopTapDown) {
+          stopTapDown = true;
+          stopTapStarted = now;
+        }
+        if (!down && stopTapDown) {
+          stopTapDown = false;
+          if (now - stopTapStarted >= BTN_DEBOUNCE_MS) stopRequested = true;
+        }
+      }
+
+      uint64_t remaining = freeAtStart > totalMono ? freeAtStart - totalMono : 0;
+      if (remaining <= LONG_REC_RESERVE_BYTES || elapsed >= LONG_REC_MAX_MS)
+        stopRequested = true;
+
+      if (elapsed - lastCheckpoint >= LONG_REC_CHECKPOINT_MS) {
+        lastCheckpoint = elapsed;
+        writeWavHeader(f, totalMono, true);
+      }
+      if (elapsed - lastBattery >= LONG_REC_BATTERY_MS) {
+        lastBattery = elapsed;
+        int battery = readBatteryPercent();
+        if (battery >= 0 && battery <= 5) stopRequested = true;
+      }
+    }
+
+    uint32_t uiCadence = longMode ? LONG_REC_UI_MS : 100UL;
+    if (now - lastUi >= uiCadence) {
       lastUi = now;
-      int lvl = (int)((long)recPeak * 152L * 3L / 32767L);   // ×3 boost for speech
-      if (lvl > 152) lvl = 152;
-      showRecordingLive(now - t0, lvl);
+      if (longMode) {
+        uint64_t remaining = freeAtStart > totalMono ? freeAtStart - totalMono : 0;
+        uint32_t remainingMinutes = (uint32_t)(remaining / (SAMPLE_RATE * 2ULL * 60ULL));
+        showLongRecordingLive(elapsed, remainingMinutes);
+      } else {
+        int lvl = (int)((long)recPeak * 152L * 3L / 32767L); // x3 boost for speech
+        if (lvl > 152) lvl = 152;
+        showRecordingLive(elapsed, lvl);
+      }
       recPeak = 0;
     }
   }
@@ -110,21 +186,16 @@ bool record() {
 
   vRingbufferDeleteWithCaps(ctx.ring);
 
-  f.seek(0);
-  uint32_t dB=totalMono, fS=dB+36, bR=SAMPLE_RATE*2;
-  uint16_t bA=2,aF=1,ch=1,bps=16; uint32_t fL=16,sr=SAMPLE_RATE;
-  f.write((uint8_t*)"RIFF",4); f.write((uint8_t*)&fS,4);
-  f.write((uint8_t*)"WAVE",4); f.write((uint8_t*)"fmt ",4);
-  f.write((uint8_t*)&fL,4);   f.write((uint8_t*)&aF,2);
-  f.write((uint8_t*)&ch,2);   f.write((uint8_t*)&sr,4);
-  f.write((uint8_t*)&bR,4);   f.write((uint8_t*)&bA,2);
-  f.write((uint8_t*)&bps,2);
-  f.write((uint8_t*)"data",4); f.write((uint8_t*)&dB,4);
+  writeWavHeader(f, totalMono, true);
   f.close();
 
+  if (totalMono <= 1000) {
+    SD_MMC.remove(path);
+    return false;
+  }
   lastRecNum = num;
   Serial.printf("[Rec] done: %lu bytes\n", (unsigned long)totalMono);
-  return totalMono > 1000;
+  return true;
 }
 
 bool playWavFile(const char* path) {

@@ -703,7 +703,7 @@ void handleOtaPage() {
   html += "<div class='card'>";
   html += "<p class='hint'>粘贴已编译固件 .bin 的 HTTPS 地址。设备会校验证书，写入备用分区并自动重启；启动失败时会自动回滚。</p>";
   html += "<form action='/ota/run' method='post'>"
-          "<p><input name='url' placeholder='https://host/forrest-note.bin'></p>"
+          "<p><input name='url' placeholder='https://host/memory-bread.bin'></p>"
           "<button type='submit'>更新固件</button></form></div>";
   html += "<a class='btn' href='/'>返回笔记</a>";
   html += "</div></body></html>";

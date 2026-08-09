@@ -2,7 +2,7 @@
 
 ## Memory Bread CJK Bitmap
 
-`forrest_note/src/app/zh_font.h` contains a generated 16 × 16 bitmap font named **Memory Bread CJK Bitmap**. It is derived from **Source Han Sans CN Regular**, copyright Adobe, and is distributed under the SIL Open Font License 1.1.
+`memory_bread/src/app/zh_font.h` contains a generated 16 × 16 bitmap font named **Memory Bread CJK Bitmap**. It is derived from **Source Han Sans CN Regular**, copyright Adobe, and is distributed under the SIL Open Font License 1.1.
 
 - Upstream: <https://github.com/adobe-fonts/source-han-sans>
 - Source file: `SubsetOTF/CN/SourceHanSansCN-Regular.otf`

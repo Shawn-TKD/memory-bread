@@ -1,6 +1,6 @@
 # 记忆面包开源发布清单
 
-这份清单用于把当前本地项目发布成一个独立、可复现且不会泄露个人凭据的 GitHub 仓库。当前项目的远程 `origin` 仍然指向 `Forrest404/forrest-notes`，不要直接向这个地址推送自己的版本。
+这份清单用于维护一个独立、可复现且不会泄露个人凭据的 GitHub 仓库。当前 `origin` 指向 `Shawn-TKD/memory-bread`；原始代码来源单独保留为只读参考用的 `upstream`。
 
 ## 1. 推荐仓库定位
 
@@ -20,7 +20,7 @@
 
 - 在硅基流动后台撤销并重建所有曾经出现在聊天、截图或演示视频中的 API Key。
 - 在闪念贝壳“设置 → MCP → API 密钥”重置所有曾经公开过的 Token。
-- 确认 `forrest_note/secrets.h` 只有 `....` 占位符。
+- 确认 `memory_bread/secrets.h` 只有 `....` 占位符。
 - 搜索源码、Markdown、串口日志和截图中是否出现 `sk-`、`Bearer`、Wi-Fi 密码、GitHub Token。
 - 不要提交设备 NVS 导出、microSD 卡内容、串口日志、coredump、设备 MAC 地址或家庭/办公室 SSID。
 
@@ -28,10 +28,10 @@
 
 ## 3. 许可证与来源说明
 
-当前仓库根目录包含 Forrest Notes 的 MIT `LICENSE`。发布自己的分支时：
+当前仓库根目录包含上游代码沿用的 MIT `LICENSE`。发布自己的分支时：
 
 - 保留原 MIT 许可证和版权声明。
-- 在 README 的 Credits 中保留 Forrest Notes 与 Pala Note 的来源链接和贡献说明。
+- 在 `ACKNOWLEDGEMENTS.md` 中保留上游代码和原始硬件项目的来源链接与贡献说明。
 - 单独列出“记忆面包新增内容”，例如中文 UI、中文字库、三组 Wi-Fi、手机配网、长录音、提示音主题、硅基流动和闪念贝壳 MCP。
 - 3D 外壳文件若来自原 Pala Note 下载包，不要在没有明确再分发许可的情况下复制进公开仓库；可以保留原项目购买或下载链接。
 - 第三方字体、图片、音频和库要逐项保留来源与许可证。中文字体尤其需要在发布前确认字体源允许嵌入和再分发。
@@ -49,7 +49,7 @@ memory-bread/
 ├── CHANGELOG.md              # 每个固件版本的变化
 ├── SECURITY.md               # 密钥、漏洞报告与隐私说明
 ├── LICENSE
-├── forrest_note/             # Arduino 固件源码
+├── memory_bread/             # Arduino 固件源码
 ├── tools/                    # 字库生成等开发工具
 └── docs/images/              # 不包含密钥、SSID 和个人笔记的产品图片
 ```
@@ -61,9 +61,9 @@ memory-bread/
 - SHA-256 校验值。
 - 版本变更、兼容板型和升级注意事项。
 
-## 5. README 必须重写的内容
+## 5. README 发布检查
 
-当前 README 仍以旧版 OpenAI、GitHub 和 Obsidian 为主，不能直接作为“记忆面包”发布首页。至少要改成：
+README 已改为“记忆面包”的独立产品首页。后续发布时继续检查：
 
 1. 产品名称和一张不含隐私信息的实拍图。
 2. 明确支持的开发板型号：微雪 ESP32-S3-ePaper-1.54 黑白屏 N8R8。
@@ -71,7 +71,7 @@ memory-bread/
 4. 强调录音默认离线保存、同步由用户手动触发。
 5. 写清楚长录音、三组 Wi-Fi、中文 UI、OTA 与存储限制。
 6. 把 GitHub/Obsidian 标为旧版兼容功能，或者等源码真正删除后从文档移除。
-7. 链接 `USER_GUIDE_ZH.md`、构建文档、许可证和上游项目。
+7. 链接 `USER_GUIDE_ZH.md`、构建文档、许可证和致谢文件。
 
 ## 6. 建议的 Git 远程关系
 
@@ -79,7 +79,7 @@ memory-bread/
 
 ```text
 origin    你的账号/memory-bread
-upstream  Forrest404/forrest-notes
+upstream  原始代码仓库
 ```
 
 不要直接覆盖或强推上游仓库。第一次发布前先检查工作区中所有修改，将固件、文档、生成字库和调试工具分成有意义的提交；不要把 `.build/`、个人配置或测试录音加入提交。

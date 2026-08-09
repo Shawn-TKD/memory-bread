@@ -90,7 +90,7 @@ arduino-cli lib install "Adafruit GFX Library" "ArduinoJson"
 ```bash
 arduino-cli compile \
   -b "esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=custom,CDCOnBoot=cdc,FlashSize=8M" \
-  ./forrest_note
+  ./memory_bread
 ```
 
 进入 ROM Bootloader：
@@ -107,7 +107,7 @@ arduino-cli compile \
 arduino-cli compile --upload \
   -p /dev/tty.usbmodemXXXX \
   -b "esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=custom,CDCOnBoot=cdc,FlashSize=8M" \
-  ./forrest_note
+  ./memory_bread
 ```
 
 日志出现 `Hash of data verified.` 代表写入校验成功。普通烧录不会清除 NVS 配置和 microSD 卡内容。
@@ -178,8 +178,8 @@ Key 和 Token 通过配置页存入 ESP32 的 NVS，不需要写进源码。完�
 
 - [完整中文使用说明书](./USER_GUIDE_ZH.md)
 - [开源发布清单](./OPEN_SOURCE_CHECKLIST_ZH.md)
-- [自定义 Flash 分区](./forrest_note/partitions.csv)
-- [固件入口](./forrest_note/forrest_note.ino)
+- [自定义 Flash 分区](./memory_bread/partitions.csv)
+- [固件入口](./memory_bread/memory_bread.ino)
 - [第三方组件与字体许可](./THIRD_PARTY_NOTICES.md)
 
 ## 当前限制
@@ -201,15 +201,9 @@ Key 和 Token 通过配置页存入 ESP32 的 NVS，不需要写进源码。完�
 - 可调录音回放音量。
 - 更适合普通用户的本地 OTA 文件上传和正式固件 Release。
 
-## 来源与致谢
+## 开源与致谢
 
-记忆面包基于 [Forrest404/forrest-notes](https://github.com/Forrest404/forrest-notes) 继续开发。Forrest Notes 又建立在 Pala Note 的硬件适配、录音、墨水屏和设备交互基础上。
-
-- Forrest Notes：<https://github.com/Forrest404/forrest-notes>
-- Pala Note：<https://ko-fi.com/s/674a1a82e0>
-- 微雪目标开发板：<https://www.waveshare.net/shop/ESP32-S3-ePaper-1.54-EN.htm>
-
-请保留上游作者署名。原 Pala Note 下载包中的 3D 外壳文件不包含在本仓库中；如需外壳，请通过原项目获取。
+记忆面包建立在开源代码与社区硬件工作的基础上。上游代码、原始硬件项目和第三方组件的来源统一记录在[致谢与来源说明](./ACKNOWLEDGEMENTS.md)中，不作为产品名称或功能定位的一部分。
 
 ## 许可证
 

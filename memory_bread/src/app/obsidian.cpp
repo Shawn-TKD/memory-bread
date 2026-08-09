@@ -223,7 +223,7 @@ static String buildNoteMarkdown(int num, const String& uid,
   if (createdUtc.length()) md += "date: " + createdUtc + "\n";
   md += "id: " + String(num) + "\n";
   md += "uid: " + uid + "\n";
-  md += "source: forrest-note\n";
+  md += "source: memory-bread\n";
 
   // frontmatter tags = user tag + topics (Obsidian tags can't contain spaces)
   String list = "";

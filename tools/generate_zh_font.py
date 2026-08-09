@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "forrest_note/src/app/zh_font.h"
+OUT = ROOT / "memory_bread/src/app/zh_font.h"
 DEFAULT_FONT = ROOT / "tools/fonts/SourceHanSansCN-Regular.otf"
 FONT = Path(os.environ.get("ZH_FONT", DEFAULT_FONT))
 FONT_URL = (

@@ -73,15 +73,17 @@ void iconTag(int cx, int cy) {
 }
 
 void iconSync(int cx, int cy) {
-  strokeCircle(cx, cy, 40, 4, BLACK);
-  fillRect(cx+16, cy-46, 20, 20, WHITE);
-  thickLine(cx+16, cy-36, cx+36, cy-36, 3, BLACK);
-  thickLine(cx+36, cy-36, cx+26, cy-46, 3, BLACK);
-  thickLine(cx+36, cy-36, cx+26, cy-26, 3, BLACK);
-  fillRect(cx-36, cy+26, 20, 20, WHITE);
-  thickLine(cx-36, cy+36, cx-16, cy+36, 3, BLACK);
-  thickLine(cx-16, cy+36, cx-26, cy+26, 3, BLACK);
-  thickLine(cx-16, cy+36, cx-26, cy+46, 3, BLACK);
+  // Compact two-arrow sync mark.  The former 40 px radius icon extended to
+  // y=122 and collided with the progress bar beginning at y=116.
+  strokeCircle(cx, cy, 27, 3, BLACK);
+  fillRect(cx+8, cy-34, 20, 16, WHITE);
+  thickLine(cx+8,  cy-27, cx+25, cy-27, 2, BLACK);
+  thickLine(cx+25, cy-27, cx+18, cy-34, 2, BLACK);
+  thickLine(cx+25, cy-27, cx+18, cy-20, 2, BLACK);
+  fillRect(cx-28, cy+18, 20, 16, WHITE);
+  thickLine(cx-25, cy+27, cx-8,  cy+27, 2, BLACK);
+  thickLine(cx-25, cy+27, cx-18, cy+20, 2, BLACK);
+  thickLine(cx-25, cy+27, cx-18, cy+34, 2, BLACK);
 }
 
 void iconWifi(int cx, int cy) {
@@ -521,20 +523,41 @@ void showDeleteConfirm(int noteNum) {
   refresh();
 }
 
-void showObsidianSync(int done, int total) {
+void showCloudSync(int success, int failed, int total) {
   clearWhite();
-  drawKicker("上传笔记", 20);
-  iconSync(100, 76);
+  drawKicker("上传笔记", 14);
+  iconSync(100, 70);
   int barW = 144, barH = 10, barX = 28, barY = 116;
   strokeRoundRect(barX, barY, barW, barH, 5, 1, BLACK);
   if (total > 0) {
-    int fill = (done * (barW - 4)) / max(total, 1);
+    int processed = min(success + failed, total);
+    int fill = (processed * (barW - 4)) / max(total, 1);
     if (fill > 0) fillRoundRect(barX+2, barY+2, fill, barH-4, 3, BLACK);
-    char b[20]; snprintf(b, sizeof(b), "%d / %d", done, total);
-    drawStrC(100, 142, b, 1, BLACK);
+    char current[32];
+    snprintf(current, sizeof(current), "正在上传 %d / %d", min(processed + 1, total), total);
+    drawStrC(100, 140, current, 1, BLACK);
+    char summary[32];
+    snprintf(summary, sizeof(summary), "成功 %d  失败 %d", success, failed);
+    drawStrC(100, 166, summary, 1, BLACK);
   } else {
-    drawStrC(100, 142, "请稍候", 1, BLACK);
+    drawStrC(100, 145, "正在准备", 1, BLACK);
   }
+  refresh();
+}
+
+void showCloudSyncResult(int success, int failed) {
+  clearWhite();
+  if (failed == 0) {
+    drawCheckSmall(100, 56, BLACK);
+    drawStrC(100, 88, "上传完成", 1, BLACK);
+  } else {
+    iconError(100, 56);
+    drawStrC(100, 108, "部分上传失败", 1, BLACK);
+  }
+  char ok[24]; snprintf(ok, sizeof(ok), "成功 %d 条", success);
+  char bad[24]; snprintf(bad, sizeof(bad), "失败 %d 条", failed);
+  drawStrC(100, 139, ok, 1, BLACK);
+  drawStrC(100, 164, bad, 1, BLACK);
   refresh();
 }
 

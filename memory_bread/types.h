@@ -23,6 +23,15 @@ enum ButtonEvent { EV_NONE, EV_SINGLE, EV_LONG, EV_DOUBLE };
 
 struct NoteEntry { int num; char tag[32]; bool hasText; };
 
+// Result returned by each optional cloud destination.  `pending` is the
+// number of notes that needed uploading when the destination started;
+// failures remain pending and will be retried on the next sync.
+struct SyncResult {
+  int pending;
+  int success;
+  int failed;
+};
+
 // Content array sizes — used across notes, ui, and main loop.
 #define DEFAULT_TAG_COUNT 5
 #define MENU_COUNT        5

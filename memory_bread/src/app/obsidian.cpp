@@ -470,22 +470,24 @@ void obsidianFlushDeletes() {
 }
 
 // ── Public entry point ──────────────────────────────────────────────────────
-void obsidianSyncAll() {
-  if (!cfg::hasGithub() || WiFi.status() != WL_CONNECTED) return;
+SyncResult obsidianSyncAll() {
+  SyncResult result = {0, 0, 0};
+  if (!cfg::hasGithub() || WiFi.status() != WL_CONNECTED) return result;
 
   obsidianFlushDeletes();   // drain any queued vault deletes first
 
   int pending = 0;
   for (int i = 0; i < (int)noteIndex.size(); i++)
     if (noteIndex[i].hasText && !noteObsidianPushed(noteIndex[i].num)) pending++;
-  if (pending == 0) return;
+  result.pending = pending;
+  if (pending == 0) return result;
 
-  int done = 0; bool pushedAny = false;
+  bool pushedAny = false;
   for (int i = 0; i < (int)noteIndex.size(); i++) {
     if (!noteIndex[i].hasText || noteObsidianPushed(noteIndex[i].num)) continue;
     if (WiFi.status() != WL_CONNECTED) break;
 
-    showObsidianSync(done, pending);
+    showCloudSync(result.success, result.failed, pending);
     int num = noteIndex[i].num;
     String userTag = String(noteIndex[i].tag);
     String createdUtc = noteCreatedUtc(num);
@@ -526,9 +528,10 @@ void obsidianSyncAll() {
       if (r == GH_OK || r == GH_AUTH) break;
       delay(1500);
     }
-    if (r == GH_OK)            { freezeVaultMeta(num, slug, title); markNoteObsidianPushed(num, true); done++; pushedAny = true; }
-    else if (r == GH_AUTH)     { showError("GIT AUTH"); delay(1600); return; }
+    if (r == GH_OK)            { freezeVaultMeta(num, slug, title); markNoteObsidianPushed(num, true); result.success++; pushedAny = true; }
+    else if (r == GH_AUTH)     { result.failed = pending - result.success; showError("GIT AUTH"); delay(1600); return result; }
     else if (r == GH_RATELIMIT){ Serial.println("[gh] rate limited; stopping"); break; }
+    else result.failed++;
     // GH_NET / GH_OTHER: leave pending, try the next note
   }
 
@@ -542,5 +545,10 @@ void obsidianSyncAll() {
       if (any) buildAndPushTagMOC(tags[t]);
     }
   }
-  Serial.printf("[gh] synced %d/%d notes\n", done, pending);
+  // A connection/rate-limit break can leave notes that were never attempted.
+  // They are still failures for this run and remain pending for the next sync.
+  result.failed = pending - result.success;
+  Serial.printf("[gh] synced %d/%d notes, failed=%d\n",
+                result.success, pending, result.failed);
+  return result;
 }

@@ -211,11 +211,15 @@ void startSyncFlow() {
     syncTimeFromNTP(6000);
     transcribeAll();
     loadIndex();
-    ideashellSyncAll();       // direct MCP text sync; safe no-op unless enabled
-    obsidianSyncAll();        // push freshly-transcribed notes to the Obsidian vault
+    SyncResult ideaShell = ideashellSyncAll(); // safe no-op unless enabled
+    SyncResult github = obsidianSyncAll();      // safe no-op unless enabled
     WiFi.disconnect(true);
-    showDone();
-    soundSuccess();
+    int cloudPending = ideaShell.pending + github.pending;
+    int cloudSuccess = ideaShell.success + github.success;
+    int cloudFailed = ideaShell.failed + github.failed;
+    if (cloudPending > 0) showCloudSyncResult(cloudSuccess, cloudFailed);
+    else showDone();
+    if (cloudFailed == 0) soundSuccess();
     delay(1600);
   } else {
     showError("网络未连接");

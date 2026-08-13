@@ -263,23 +263,31 @@ bool ideashellTestConnection(String& error) {
   return mcpCall(session, "recent_notes", args, response, error);
 }
 
-void ideashellSyncAll() {
-  if (!cfg::hasIdeashell() || WiFi.status() != WL_CONNECTED) return;
+SyncResult ideashellSyncAll() {
+  SyncResult result = {0, 0, 0};
+  if (!cfg::hasIdeashell() || WiFi.status() != WL_CONNECTED) return result;
   int pending = 0;
   for (int i = 0; i < (int)noteIndex.size(); i++)
     if (noteIndex[i].hasText && !alreadyPushed(noteIndex[i].num)) pending++;
-  if (!pending) return;
+  result.pending = pending;
+  if (!pending) return result;
 
   String session, error;
   if (!beginMcpSession(session, error)) {
-    Serial.printf("[ideaShell] %s\n", error.c_str()); return;
+    Serial.printf("[ideaShell] %s\n", error.c_str());
+    result.failed = pending;
+    return result;
   }
-  int done = 0;
   for (int i = 0; i < (int)noteIndex.size(); i++) {
     if (!noteIndex[i].hasText || alreadyPushed(noteIndex[i].num)) continue;
-    showObsidianSync(done, pending);
-    if (createNote(session, noteIndex[i].num, noteIndex[i].tag, error)) done++;
-    else Serial.printf("[ideaShell] note %d: %s\n", noteIndex[i].num, error.c_str());
+    showCloudSync(result.success, result.failed, pending);
+    if (createNote(session, noteIndex[i].num, noteIndex[i].tag, error)) result.success++;
+    else {
+      result.failed++;
+      Serial.printf("[ideaShell] note %d: %s\n", noteIndex[i].num, error.c_str());
+    }
   }
-  Serial.printf("[ideaShell] synced %d/%d\n", done, pending);
+  Serial.printf("[ideaShell] synced %d/%d, failed=%d\n",
+                result.success, pending, result.failed);
+  return result;
 }

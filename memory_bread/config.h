@@ -95,7 +95,7 @@
 
 /* Time & firmware */
 #define LOCAL_TIME_OFFSET_MIN  480   // China Standard Time (UTC+8)
-#define FIRMWARE_VERSION       "v1.6-memorybread"
-#define FW_VERSION             "v1.6-memorybread"
+#define FIRMWARE_VERSION       "v1.7-memorybread"
+#define FW_VERSION             "v1.7-memorybread"
 
 #endif // CONFIG_H

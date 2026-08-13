@@ -108,9 +108,11 @@ void keepBatteryPowerOn() {
 }
 
 // ─── Flow functions ───────────────────────────────────────────────────────
-bool connectSavedWifi(bool showProgress) {
+bool connectSavedWifi(bool showProgress, bool keepSetupHotspot = false) {
   if (!cfg::hasWifi()) return false;
-  WiFi.mode(WIFI_STA);
+  // Transfer mode keeps the setup AP alive while STA connects, so the phone
+  // always has the reliable 192.168.4.1 fallback even on isolated networks.
+  WiFi.mode(keepSetupHotspot ? WIFI_AP_STA : WIFI_STA);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
 
@@ -261,27 +263,34 @@ void startTransferMode() {
   state = STATE_TRANSFER;
   showTransferConnecting();
 
-  // No saved network, or none of the three networks is reachable: expose the
-  // setup hotspot rather than trapping the user behind bad credentials.
-  if (!cfg::hasWifi()) {
-    startSetupHotspot();
-    return;
+  // Always expose the setup hotspot. A LAN address alone is not dependable:
+  // guest/office Wi-Fi often isolates clients, and the phone may be on another
+  // saved network. AP+STA lets 192.168.4.1 work while STA connects in parallel.
+  WiFi.disconnect(true);
+  WiFi.persistent(false);
+  WiFi.mode(WIFI_AP_STA);
+  bool apOk = WiFi.softAP("MemoryBread-Setup");
+  delay(200);
+  IPAddress apIP = WiFi.softAPIP();
+  Serial.printf("[Transfer] SoftAP '%s' start=%d ip=%s\n",
+                "MemoryBread-Setup", apOk, apIP.toString().c_str());
+
+  bool lanConnected = cfg::hasWifi() && connectSavedWifi(false, true);
+  if (lanConnected) {
+    Serial.printf("[Transfer] LAN access also available at http://%s/\n",
+                  WiFi.localIP().toString().c_str());
+    syncTimeFromNTP(8000);
+  } else {
+    Serial.println("[Transfer] no LAN connection; setup AP remains available");
   }
 
-  if (!connectSavedWifi(false)) {
-    showError("网络未连接");
-    delay(1200);
-    startSetupHotspot();
-    return;
-  }
-
-  syncTimeFromNTP(8000);
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(53, "*", apIP);
+  captivePortalActive = true;
   setupTransferServer();
   transferServer.begin();
   transferServerActive = true;
-
-  IPAddress ip = WiFi.localIP();
-  transferUrl = ip.toString();
+  transferUrl = apIP.toString();
   showTransferMode(transferUrl.c_str());
 }
 

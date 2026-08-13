@@ -608,7 +608,22 @@ void showError(const char* msg) {
 
 void showUltraSleepScreen() {
   clearWhite();
-  drawProductWordmark(100, 70, BLACK);
+  bool customCover = false;
+  const char* coverPath = SD_MMC.exists(SLEEP_COVER_FILE) ? SLEEP_COVER_FILE
+                        : (SD_MMC.exists(SLEEP_COVER_BAK) ? SLEEP_COVER_BAK : nullptr);
+  if (coverPath) {
+    File cover = SD_MMC.open(coverPath, FILE_READ);
+    const size_t expected = (W * H) / 8;
+    if (cover && cover.size() == expected) {
+      uint8_t* target = display->getBuffer();
+      customCover = cover.read(target, expected) == expected;
+    }
+    if (cover) cover.close();
+  }
+  if (!customCover) {
+    clearWhite();
+    drawProductWordmark(100, 70, BLACK);
+  }
   forceFullRefresh();   // this image persists through deep sleep; keep it crisp
 }
 

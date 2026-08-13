@@ -244,7 +244,11 @@ String portalCss() {
     ".empty{border:1.5px dashed #111;border-radius:24px;padding:34px;text-align:center;color:#6a665f;}"
     "audio{width:100%;margin-top:8px;}"
     ".hint{font-size:12px;color:#6f6960;line-height:1.5;margin:8px 0;}"
-    "@media(max-width:520px){body{padding:12px}.wrap{max-width:none}.top{align-items:center;margin-bottom:12px}h1{font-size:28px;line-height:1}.sub{font-size:11px}.card{padding:14px;border-radius:17px;margin:10px 0;box-shadow:2px 2px 0 #26251f}.title{font-size:20px}.status-grid{grid-template-columns:1fr 1fr}.status-item:last-child{grid-column:1/-1}.row{gap:10px}.savebar{bottom:6px}}"
+    ".cover-tools{display:grid;grid-template-columns:200px 1fr;gap:16px;align-items:start;}"
+    ".cover-preview{width:200px;height:200px;max-width:100%;border:1px solid #aaa59b;background:#fff;image-rendering:pixelated;}"
+    ".cover-controls{display:flex;flex-direction:column;gap:9px;}"
+    "select{width:100%;font:inherit;padding:10px 12px;border:1px solid #bdb8af;border-radius:12px;background:#fff;}"
+    "@media(max-width:520px){body{padding:12px}.wrap{max-width:none}.top{align-items:center;margin-bottom:12px}h1{font-size:28px;line-height:1}.sub{font-size:11px}.card{padding:14px;border-radius:17px;margin:10px 0;box-shadow:2px 2px 0 #26251f}.title{font-size:20px}.status-grid{grid-template-columns:1fr 1fr}.status-item:last-child{grid-column:1/-1}.row{gap:10px}.savebar{bottom:6px}.cover-tools{grid-template-columns:1fr}.cover-preview{margin:0 auto}}"
     "</style>"
   );
 }
@@ -583,6 +587,16 @@ void handleProvisionPage() {
   }
   html += "</section>";
 
+  html += "<section class='card'><div class='section-head'><h2>关机封面</h2><span class='badge " +
+          String(SD_MMC.exists(SLEEP_COVER_FILE) ? "ok'>已设置" : "muted'>默认") + "</span></div>";
+  html += "<p class='hint'>图片只在手机里裁剪并转成墨水屏黑白数据，上传后约 5KB。设备进入深度睡眠时显示，原图不会保存。</p>";
+  html += "<div class='cover-tools'><canvas id='coverCanvas' class='cover-preview' width='200' height='200'></canvas><div class='cover-controls'>";
+  html += "<input id='coverFile' type='file' accept='image/*'>";
+  html += "<label class='field'><span>图片布局</span><select id='coverFit'><option value='cover'>填满屏幕（可能裁边）</option><option value='contain'>完整显示（自动留白）</option></select></label>";
+  html += "<button id='coverUpload' type='button' disabled>上传为关机封面</button>";
+  html += "<button id='coverDelete' class='secondary' type='button'>恢复默认封面</button>";
+  html += "<p id='coverStatus' class='hint' aria-live='polite'>请选择一张图片</p></div></div></section>";
+
   html += "<section class='card'><div class='section-head'><h2>AI 转写</h2><span class='badge " +
           String(cfg::hasSiliconFlowKey() ? "ok'>已配置" : "muted'>未设置") + "</span></div>";
   html += "<label class='field'><span>硅基流动 API Key</span><input name='siliconflow' type='password' autocomplete='new-password' placeholder='sk-...（留空保持不变）'></label>";
@@ -623,9 +637,69 @@ void handleProvisionPage() {
           "b.addEventListener('click',()=>{inputs[active].value=n.ssid;document.getElementById('pass'+active).focus();status.textContent='已填入网络 '+(active+1);});box.appendChild(b);});}"
           "catch(e){status.textContent='扫描失败，请点按钮重试';}finally{btn.disabled=false;btn.textContent='重新扫描';}}"
           "btn.addEventListener('click',scan);setTimeout(scan,350);})();"
+          "(()=>{const canvas=document.getElementById('coverCanvas'),ctx=canvas.getContext('2d',{willReadFrequently:true});"
+          "const file=document.getElementById('coverFile'),fit=document.getElementById('coverFit'),upload=document.getElementById('coverUpload'),del=document.getElementById('coverDelete'),status=document.getElementById('coverStatus');let img=null,packed=null;"
+          "function blank(){ctx.fillStyle='#fff';ctx.fillRect(0,0,200,200);ctx.fillStyle='#111';ctx.font='bold 20px sans-serif';ctx.textAlign='center';ctx.fillText('记忆面包',100,104);}blank();"
+          "function render(){if(!img)return;ctx.fillStyle='#fff';ctx.fillRect(0,0,200,200);const s=fit.value==='cover'?Math.max(200/img.width,200/img.height):Math.min(200/img.width,200/img.height),w=img.width*s,h=img.height*s;ctx.drawImage(img,(200-w)/2,(200-h)/2,w,h);"
+          "const d=ctx.getImageData(0,0,200,200),p=d.data,g=new Float32Array(40000);for(let i=0;i<40000;i++)g[i]=.299*p[i*4]+.587*p[i*4+1]+.114*p[i*4+2];"
+          "for(let y=0;y<200;y++)for(let x=0;x<200;x++){const i=y*200+x,o=g[i],n=o<128?0:255,e=o-n;g[i]=n;if(x<199)g[i+1]+=e*7/16;if(y<199){if(x>0)g[i+199]+=e*3/16;g[i+200]+=e*5/16;if(x<199)g[i+201]+=e/16;}}"
+          "packed=new Uint8Array(5000);packed.fill(255);for(let i=0;i<40000;i++){const black=g[i]<128;p[i*4]=p[i*4+1]=p[i*4+2]=black?0:255;p[i*4+3]=255;if(black)packed[i>>3]&=~(1<<(7-(i&7)));}ctx.putImageData(d,0,0);upload.disabled=false;status.textContent='预览已生成，可上传';}"
+          "file.addEventListener('change',()=>{const f=file.files[0];if(!f)return;const u=URL.createObjectURL(f),next=new Image();next.onload=()=>{URL.revokeObjectURL(u);img=next;render();};next.onerror=()=>{URL.revokeObjectURL(u);status.textContent='无法读取这张图片';};next.src=u;});fit.addEventListener('change',render);"
+          "upload.addEventListener('click',async()=>{if(!packed)return;upload.disabled=true;status.textContent='正在上传…';const fd=new FormData();fd.append('cover',new Blob([packed],{type:'application/octet-stream'}),'sleep_cover.bin');try{const r=await fetch('/cover/upload',{method:'POST',body:fd});status.textContent=await r.text();}catch(e){status.textContent='上传失败，请重试';}finally{upload.disabled=false;}});"
+          "del.addEventListener('click',async()=>{if(!confirm('恢复默认的记忆面包封面？'))return;try{const r=await fetch('/cover/delete',{method:'POST'});status.textContent=await r.text();if(r.ok){img=null;packed=null;upload.disabled=true;blank();}}catch(e){status.textContent='操作失败，请重试';}});})();"
           "</script>";
   html += "</div></body></html>";
   transferServer.send(200, "text/html", html);
+}
+
+static File coverUploadFile;
+static size_t coverUploadBytes = 0;
+static bool coverUploadOk = false;
+static bool coverUploadOverflow = false;
+
+void handleCoverUploadData() {
+  HTTPUpload& upload = transferServer.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    coverUploadBytes = 0;
+    coverUploadOk = false;
+    coverUploadOverflow = false;
+    if (!SD_MMC.exists(SYSTEM_DIR)) SD_MMC.mkdir(SYSTEM_DIR);
+    if (SD_MMC.exists(SLEEP_COVER_TMP)) SD_MMC.remove(SLEEP_COVER_TMP);
+    coverUploadFile = SD_MMC.open(SLEEP_COVER_TMP, FILE_WRITE);
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (coverUploadBytes + upload.currentSize > (EPD_WIDTH * EPD_HEIGHT) / 8) {
+      coverUploadOverflow = true;
+    } else if (coverUploadFile) {
+      coverUploadBytes += coverUploadFile.write(upload.buf, upload.currentSize);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (coverUploadFile) coverUploadFile.close();
+    const size_t expected = (EPD_WIDTH * EPD_HEIGHT) / 8;
+    if (!coverUploadOverflow && coverUploadBytes == expected) {
+      if (SD_MMC.exists(SLEEP_COVER_BAK)) SD_MMC.remove(SLEEP_COVER_BAK);
+      if (SD_MMC.exists(SLEEP_COVER_FILE)) SD_MMC.rename(SLEEP_COVER_FILE, SLEEP_COVER_BAK);
+      coverUploadOk = SD_MMC.rename(SLEEP_COVER_TMP, SLEEP_COVER_FILE);
+      if (coverUploadOk && SD_MMC.exists(SLEEP_COVER_BAK)) SD_MMC.remove(SLEEP_COVER_BAK);
+    }
+    if (!coverUploadOk && SD_MMC.exists(SLEEP_COVER_TMP)) SD_MMC.remove(SLEEP_COVER_TMP);
+  } else if (upload.status == UPLOAD_FILE_ABORTED) {
+    if (coverUploadFile) coverUploadFile.close();
+    if (SD_MMC.exists(SLEEP_COVER_TMP)) SD_MMC.remove(SLEEP_COVER_TMP);
+  }
+}
+
+void handleCoverUploadDone() {
+  transferServer.send(coverUploadOk ? 200 : 400, "text/plain; charset=utf-8",
+                      coverUploadOk ? "封面已保存，下次关机时生效" : "封面数据无效，请重新选择图片");
+}
+
+void handleCoverDelete() {
+  bool ok = true;
+  if (SD_MMC.exists(SLEEP_COVER_FILE)) ok &= SD_MMC.remove(SLEEP_COVER_FILE);
+  if (SD_MMC.exists(SLEEP_COVER_TMP))  ok &= SD_MMC.remove(SLEEP_COVER_TMP);
+  if (SD_MMC.exists(SLEEP_COVER_BAK))  ok &= SD_MMC.remove(SLEEP_COVER_BAK);
+  transferServer.send(ok ? 200 : 500, "text/plain; charset=utf-8",
+                      ok ? "已恢复默认封面" : "删除失败，请重试");
 }
 
 void handleProvisionSave() {
@@ -740,6 +814,8 @@ void setupTransferServer() {
   transferServer.on("/wifi/scan", HTTP_GET, handleWifiScan);
   transferServer.on("/provision/save", HTTP_POST, handleProvisionSave);
   transferServer.on("/ideashell/test", HTTP_GET, handleIdeashellTest);
+  transferServer.on("/cover/upload", HTTP_POST, handleCoverUploadDone, handleCoverUploadData);
+  transferServer.on("/cover/delete", HTTP_POST, handleCoverDelete);
   transferServer.on("/ota", HTTP_GET, handleOtaPage);
   transferServer.on("/ota/run", HTTP_POST, handleOtaRun);
   transferServer.on("/tags", HTTP_GET, handleTagsPage);

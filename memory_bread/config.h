@@ -72,6 +72,10 @@
 #define INDEX_FILE "/notes/index.csv"
 #define TAG_FILE   "/notes/tags.txt"
 #define TOMBS_FILE "/notes/tombs.csv"   // pending vault deletes (uid,tag per line)
+#define SYSTEM_DIR "/system"
+#define SLEEP_COVER_FILE "/system/sleep_cover.bin" // packed 200x200 1-bit image (5000 bytes)
+#define SLEEP_COVER_TMP  "/system/sleep_cover.tmp"
+#define SLEEP_COVER_BAK  "/system/sleep_cover.bak"
 #define MAX_TAGS   20
 
 /* UI timing */
@@ -91,7 +95,7 @@
 
 /* Time & firmware */
 #define LOCAL_TIME_OFFSET_MIN  480   // China Standard Time (UTC+8)
-#define FIRMWARE_VERSION       "v1.5-memorybread"
-#define FW_VERSION             "v1.5-memorybread"
+#define FIRMWARE_VERSION       "v1.6-memorybread"
+#define FW_VERSION             "v1.6-memorybread"
 
 #endif // CONFIG_H

@@ -341,6 +341,7 @@ void setup() {
     while (true) delay(1000);
   }
   if (!SD_MMC.exists(NOTES_DIR)) SD_MMC.mkdir(NOTES_DIR);
+  if (!SD_MMC.exists(SYSTEM_DIR)) SD_MMC.mkdir(SYSTEM_DIR);
   loadTags();
   loadIndex();
   int recovered = recoverOrphanRecordings(tagCount > 0 ? tags[0] : "随记");

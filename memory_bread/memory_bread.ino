@@ -87,6 +87,7 @@ DNSServer dnsServer;
 bool      captivePortalActive  = false;
 
 bool timeReady    = false;
+bool storageMounted = false;
 bool audioPlaying = false;
 bool stopPlayback = false;
 
@@ -105,6 +106,47 @@ int  tagCount = 0;
 void keepBatteryPowerOn() {
   pinMode(PWR_HOLD_PIN, OUTPUT);
   digitalWrite(PWR_HOLD_PIN, HIGH);
+}
+
+// The socket has no card-detect pin, so insertion cannot generate an event.
+// Re-initialise the SDMMC host explicitly when the user asks us to retry.
+// Never format automatically: a mount failure must not destroy recordings.
+bool mountStorage() {
+  storageMounted = false;
+  noteIndex.clear();
+  tagCount = 0;
+
+  SD_MMC.end();
+  delay(120);
+  SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
+
+  constexpr int MAX_ATTEMPTS = 3;
+  for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    Serial.printf("[SD] mount attempt %d/%d\n", attempt, MAX_ATTEMPTS);
+    bool mounted = SD_MMC.begin("/sdcard", true, false);
+    if (mounted && SD_MMC.cardType() != CARD_NONE && SD_MMC.totalBytes() > 0) {
+      if (!SD_MMC.exists(NOTES_DIR)) SD_MMC.mkdir(NOTES_DIR);
+      if (!SD_MMC.exists(SYSTEM_DIR)) SD_MMC.mkdir(SYSTEM_DIR);
+
+      if (SD_MMC.exists(NOTES_DIR) && SD_MMC.exists(SYSTEM_DIR)) {
+        storageMounted = true;
+        loadTags();
+        loadIndex();
+        int recovered = recoverOrphanRecordings(tagCount > 0 ? tags[0] : "随记");
+        if (recovered > 0)
+          Serial.printf("[SD] recovered %d orphan WAV file(s) into index\n", recovered);
+        Serial.printf("[SD] mounted: %llu MB total, %d notes\n",
+                      (unsigned long long)(SD_MMC.totalBytes() / (1024ULL * 1024ULL)),
+                      (int)noteIndex.size());
+        return true;
+      }
+    }
+
+    Serial.println("[SD] mount failed or filesystem unavailable");
+    SD_MMC.end();
+    delay(300);
+  }
+  return false;
 }
 
 // ─── Flow functions ───────────────────────────────────────────────────────
@@ -344,19 +386,13 @@ void setup() {
   audio_bsp_init();
   audio_play_init();
 
-  SD_MMC.setPins(SD_CLK, SD_CMD, SD_D0);
-  if (!SD_MMC.begin("/sdcard", true)) {
-    showError("存储卡错误");
-    while (true) delay(1000);
+  if (!mountStorage()) {
+    // Do not stop inside setup(): the old infinite loop also stopped all button
+    // handling, which made both retry and the power button appear broken.
+    state = STATE_ERROR;
+    showStorageError();
+    return;
   }
-  if (!SD_MMC.exists(NOTES_DIR)) SD_MMC.mkdir(NOTES_DIR);
-  if (!SD_MMC.exists(SYSTEM_DIR)) SD_MMC.mkdir(SYSTEM_DIR);
-  loadTags();
-  loadIndex();
-  int recovered = recoverOrphanRecordings(tagCount > 0 ? tags[0] : "随记");
-  if (recovered > 0)
-    Serial.printf("[SD] recovered %d orphan WAV file(s) into index\n", recovered);
-  Serial.printf("[SD] %d notes\n", (int)noteIndex.size());
 
   if (wakeToMenuRequested) {
     menuCursor = 0;
@@ -506,6 +542,28 @@ void loop() {
       menuCursor = 0;
       state = STATE_MENU;
       showMenu(menuCursor);
+    }
+  }
+
+  // STORAGE RECOVERY ────────────────────────────────────────────────────
+  else if (state == STATE_ERROR) {
+    ButtonEvent rec = readButtonEvent(BTN_REC);
+    ButtonEvent pwr = readButtonEvent(BTN_PWR);
+
+    if (rec == EV_SINGLE || rec == EV_LONG) {
+      showStorageRetrying();
+      if (mountStorage()) {
+        soundSuccess();
+        resetActivity();
+        state = STATE_IDLE;
+        showIdle();
+      } else {
+        showStorageError();
+      }
+    } else if (pwr == EV_SINGLE || pwr == EV_LONG) {
+      showStorageRetrying();
+      delay(250);
+      ESP.restart();
     }
   }
 

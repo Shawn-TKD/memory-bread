@@ -33,6 +33,7 @@ extern DNSServer  dnsServer;
 extern bool       captivePortalActive;
 
 extern bool      timeReady;
+extern bool      storageMounted;
 
 extern bool      audioPlaying;
 extern bool      stopPlayback;

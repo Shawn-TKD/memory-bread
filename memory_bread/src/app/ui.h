@@ -50,6 +50,8 @@ void showTranscribing(int done, int total);
 void showWifiConnecting(int attempt, int maxA);
 void showDone();
 void showError(const char* msg);
+void showStorageError();
+void showStorageRetrying();
 void showUltraSleepScreen();
 void showPlaybackOverlay();
 void showTransferConnecting();

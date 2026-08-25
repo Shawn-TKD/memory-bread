@@ -606,11 +606,32 @@ void showError(const char* msg) {
   refresh();
 }
 
+void showStorageError() {
+  clearWhite();
+  drawKicker("存储卡未就绪", 22);
+  iconError(100, 67);
+  drawStrC(100, 108, "请关机后重新插卡", 1, BLACK);
+  drawStrC(100, 145, "录音键：重试", 1, BLACK);
+  drawStrC(100, 169, "电源键：重启", 1, BLACK);
+  forceFullRefresh();
+}
+
+void showStorageRetrying() {
+  clearWhite();
+  drawKicker("检查存储卡", 30);
+  iconThinking(100, 88);
+  drawStrC(100, 139, "正在重新连接", 1, BLACK);
+  refresh();
+}
+
 void showUltraSleepScreen() {
   clearWhite();
   bool customCover = false;
-  const char* coverPath = SD_MMC.exists(SLEEP_COVER_FILE) ? SLEEP_COVER_FILE
-                        : (SD_MMC.exists(SLEEP_COVER_BAK) ? SLEEP_COVER_BAK : nullptr);
+  const char* coverPath = nullptr;
+  if (storageMounted) {
+    coverPath = SD_MMC.exists(SLEEP_COVER_FILE) ? SLEEP_COVER_FILE
+              : (SD_MMC.exists(SLEEP_COVER_BAK) ? SLEEP_COVER_BAK : nullptr);
+  }
   if (coverPath) {
     File cover = SD_MMC.open(coverPath, FILE_READ);
     const size_t expected = (W * H) / 8;
